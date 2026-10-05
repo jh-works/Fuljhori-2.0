@@ -1,0 +1,23 @@
+{
+  "name": "ফুলঝরি – পিরিয়ড ট্র্যাকার",
+  "short_name": "ফুলঝরি",
+  "description": "নিজের শরীর চেনো, নিজেকে ভালো রাখো 🌸",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#FFF0F5",
+  "theme_color": "#E75480",
+  "icons": [
+    {
+      "src": "https://lh3.googleusercontent.com/d/1SXhKtuYCs4M3JOOBAJtNrA144VacZU6Q",
+      "sizes": "192x192 512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

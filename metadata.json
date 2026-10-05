@@ -1,0 +1,8 @@
+{
+  "name": "Fuljhori Period Tracker",
+  "description": "Period Tracker App",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

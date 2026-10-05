@@ -1,0 +1,1171 @@
+<!doctype html>
+<html lang="bn">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <title>ফুলঝরি – পিরিয়ড ট্র্যাকার</title>
+    <link rel="stylesheet" href="/src/style.css" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#E75480" />
+    <link rel="apple-touch-icon" href="/icon.svg" />
+    <script>
+      try {
+        const settings = JSON.parse(localStorage.getItem('fz_settings'));
+        let t = settings?.theme || 'rose-bloom';
+        if (t === 'light') t = 'rose-bloom';
+        if (t === 'dark') t = 'night-bloom';
+        document.documentElement.setAttribute('data-theme', t);
+      } catch (e) {}
+    </script>
+  </head>
+  <body>
+    <div id="petals-container" aria-hidden="true"></div>
+    <div id="app-container">
+      <!-- Splash Screen -->
+      <div id="splash-screen" class="splash-screen">
+        <div class="splash-content">
+          <img
+            src="https://lh3.googleusercontent.com/d/1SXhKtuYCs4M3JOOBAJtNrA144VacZU6Q"
+            alt="ফুলঝরি লোগো"
+            class="splash-logo"
+            referrerpolicy="no-referrer"
+            onerror="
+              this.onerror = null;
+              this.outerHTML =
+                '<div class=\'flower-bloom\' style=\'font-size: 5rem;\'>🌸</div>';
+            "
+          />
+          <h1 class="splash-title">ফুলঝরি – পিরিয়ড ট্র্যাকার</h1>
+          <p class="splash-tagline">নিজের শরীর চেনো, নিজেকে ভালো রাখো 🌸</p>
+        </div>
+        <div class="splash-glow"></div>
+      </div>
+
+      <!-- Lock Screen -->
+      <div
+        id="screen-lock"
+        class="screen hidden"
+        style="
+          z-index: 9999;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          background: var(--bg);
+        "
+      >
+        <div
+          class="lock-icon mb-4"
+          style="font-size: 3rem; color: var(--primary)"
+        >
+          🔒
+        </div>
+        <h2 id="lock-title" class="mb-4">আপনার পিন দিন</h2>
+        <div
+          id="pin-dots"
+          style="display: flex; gap: 1rem; margin-bottom: 3rem"
+        >
+          <div class="pin-dot"></div>
+          <div class="pin-dot"></div>
+          <div class="pin-dot"></div>
+          <div class="pin-dot"></div>
+        </div>
+        <div id="pin-keypad" class="keypad-grid">
+          <button class="keypad-btn" onclick="app.enterPinDigit('1')">১</button>
+          <button class="keypad-btn" onclick="app.enterPinDigit('2')">২</button>
+          <button class="keypad-btn" onclick="app.enterPinDigit('3')">৩</button>
+          <button class="keypad-btn" onclick="app.enterPinDigit('4')">৪</button>
+          <button class="keypad-btn" onclick="app.enterPinDigit('5')">৫</button>
+          <button class="keypad-btn" onclick="app.enterPinDigit('6')">৬</button>
+          <button class="keypad-btn" onclick="app.enterPinDigit('7')">৭</button>
+          <button class="keypad-btn" onclick="app.enterPinDigit('8')">৮</button>
+          <button class="keypad-btn" onclick="app.enterPinDigit('9')">৯</button>
+          <button
+            class="keypad-btn"
+            onclick="app.cancelPinSetup()"
+            id="cancel-pin-btn"
+            style="
+              visibility: hidden;
+              font-size: 1.1rem;
+              border: none;
+              background: transparent;
+              color: var(--text-muted);
+              box-shadow: none;
+            "
+          >
+            বাতিল
+          </button>
+          <button class="keypad-btn" onclick="app.enterPinDigit('0')">০</button>
+          <button
+            class="keypad-btn"
+            onclick="app.removePinDigit()"
+            style="
+              border: none;
+              background: transparent;
+              font-size: 1.8rem;
+              color: var(--text-muted);
+              box-shadow: none;
+            "
+          >
+            ⌫
+          </button>
+        </div>
+      </div>
+
+      <!-- Onboarding -->
+      <div id="view-onboarding" class="screen">
+        <div class="onboarding-slider" id="onboarding-slider" style="display: flex; transition: transform 0.4s ease-out; height: 100%; width: 300%; position: absolute; left: 0;">
+          <!-- Slide 1 -->
+          <div class="slide" id="ob-slide-1" style="width: 33.333%; height: 100%; padding: 1.5rem; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center;">
+            <div style="flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; width: 100%;">
+              <img src="https://lh3.googleusercontent.com/d/1TBzsW-gNcqL9elNRNF6G4mIs-xUTMWZ1" alt="ফুলঝরি লোগো" class="ob-logo" referrerpolicy="no-referrer" onerror="this.onerror=null; this.outerHTML='<div style=\'font-size:3rem; margin-bottom:24px;\'>🌸</div>';" />
+              <h1 style="font-size: 2.2rem; margin-bottom: 1rem; color: var(--primary);">ফুলঝরিতে স্বাগতম 🌸</h1>
+              <p style="color: var(--text-muted); font-size: 1.1rem; max-width: 80%; line-height: 1.5;">তোমার পিরিয়ড সাইকেল ট্র্যাক করো সহজেই</p>
+            </div>
+            <div style="width: 100%; max-width: 400px; margin-bottom: 3rem;">
+              <button class="ob-btn w-full" onclick="app.nextOnboardingSlide(2)">
+                পরবর্তী <span style="display:inline-block; transition: transform 0.3s; margin-left: 4px;" class="ob-arrow">→</span>
+              </button>
+              <div class="ob-pagination-group" style="display: flex; justify-content: center; gap: 8px; margin-top: 1.5rem;">
+                <div class="ob-dot active"></div>
+                <div class="ob-dot"></div>
+                <div class="ob-dot"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Slide 2 -->
+          <div class="slide" id="ob-slide-2" style="width: 33.333%; height: 100%; padding: 1.5rem 1rem; display: flex; flex-direction: column; overflow-y: auto;">
+             <div style="flex: 1; max-width: 400px; margin: 0 auto; width: 100%; display: flex; flex-direction: column; justify-content: flex-start; padding-top: 1rem; align-items: center;">
+               <img src="https://lh3.googleusercontent.com/d/1TBzsW-gNcqL9elNRNF6G4mIs-xUTMWZ1" alt="ফুলঝরি লোগো" class="ob-logo-small" referrerpolicy="no-referrer" onerror="this.onerror=null; this.style.display='none';" />
+               <h2 style="font-size: 1.6rem; margin-bottom: 0.25rem; text-align: center; color: var(--text-main); width: 100%;">তোমার তথ্য দাও</h2>
+               <p style="text-align: center; color: var(--text-muted); margin-bottom: 1.25rem; font-size: 0.95rem; width: 100%;">সঠিক হিসাবের জন্য নিচের তথ্যগুলো প্রয়োজন</p>
+               
+               <div class="ob-card" style="width: 100%;">
+                 <div class="form-group mb-4">
+                   <label class="ob-label">নাম</label>
+                   <input type="text" id="ob-setup-name" placeholder="তোমার নাম" maxlength="20" class="ob-input w-full mt-1" oninput="document.getElementById('ob-name-err').style.display='none'"/>
+                   <small id="ob-name-err" class="ob-error">নাম ২০ অক্ষরের বেশি হতে পারবেনা</small>
+                 </div>
+
+                 <div class="form-group mb-4">
+                   <label class="ob-label">বয়স</label>
+                   <input type="number" id="ob-setup-age" placeholder="যেমন: ২০" min="10" max="60" class="ob-input w-full mt-1" oninput="document.getElementById('ob-age-err').style.display='none'"/>
+                   <small id="ob-age-err" class="ob-error">বয়স ১০ থেকে ৬০ এর মধ্যে হতে হবে</small>
+                 </div>
+                 
+                 <div class="form-group mb-4 relative">
+                   <label class="ob-label">শেষ পিরিয়ড শুরুর তারিখ</label>
+                   <div style="position: relative;" class="mt-1">
+                     <i class="ob-date-icon">📅</i>
+                     <input type="date" id="ob-setup-last-period" class="ob-input w-full ob-date-input" oninput="document.getElementById('ob-date-err').style.display='none'"/>
+                   </div>
+                   <small id="ob-date-err" class="ob-error">দয়া করে সঠিক তারিখ নির্বাচন করো</small>
+                 </div>
+
+                 <div class="form-group mb-4 mt-3">
+                   <label style="display: flex; justify-content: space-between; align-items: center;" class="ob-label">
+                     <span>🌙 সাইকেল দৈর্ঘ্য</span>
+                     <span class="ob-value-pill" id="ob-cycle-val">২৮ দিন</span>
+                   </label>
+                   <input type="range" id="ob-setup-cycle" min="21" max="45" value="28" class="ob-slider w-full mt-3" oninput="document.getElementById('ob-cycle-val').innerText = toBanglaNumber(this.value) + ' দিন'" />
+                 </div>
+
+                 <div class="form-group mb-2 pt-2 border-t" style="border-top: 1px solid var(--border);">
+                   <label style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.5rem;" class="ob-label">
+                     <span>🌸 পিরিয়ডের সময়কাল</span>
+                     <span class="ob-value-pill" id="ob-period-val">৫ দিন</span>
+                   </label>
+                   <input type="range" id="ob-setup-period" min="2" max="10" value="5" class="ob-slider w-full mt-3" oninput="document.getElementById('ob-period-val').innerText = toBanglaNumber(this.value) + ' দিন'" />
+                 </div>
+               </div>
+             </div>
+             
+             <div style="width: 100%; max-width: 400px; margin: 1.5rem auto 3rem auto; padding: 0 0.5rem;">
+              <button class="ob-btn w-full" onclick="app.validateAndNextSlide(3)">
+                পরবর্তী <span style="display:inline-block; margin-left: 4px;" class="ob-arrow">→</span>
+              </button>
+              <div class="ob-pagination-group" style="display: flex; justify-content: center; gap: 8px; margin-top: 1.5rem;">
+                <div class="ob-dot"></div>
+                <div class="ob-dot active"></div>
+                <div class="ob-dot"></div>
+              </div>
+             </div>
+          </div>
+
+          <!-- Slide 3 -->
+          <div class="slide" id="ob-slide-3" style="width: 33.333%; height: 100%; padding: 1.5rem; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center;">
+            <div style="flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; width: 100%;">
+              <img src="https://lh3.googleusercontent.com/d/1TBzsW-gNcqL9elNRNF6G4mIs-xUTMWZ1" alt="ফুলঝরি লোগো" class="ob-logo" referrerpolicy="no-referrer" onerror="this.onerror=null; this.style.display='none';" />
+              <div id="ob-success-icon" style="margin-bottom: 2rem; opacity: 0; transform: scale(0.5); transition: all 0.8s cubic-bezier(0.34, 1.56, 0.64, 1); filter: drop-shadow(0 4px 15px color-mix(in srgb, var(--primary) 30%, transparent)); background: linear-gradient(135deg, color-mix(in srgb, var(--primary) 15%, transparent), color-mix(in srgb, var(--secondary) 15%, transparent)); width: 80px; height: 80px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 2px solid color-mix(in srgb, var(--primary) 20%, transparent);">
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="20 6 9 17 4 12"></polyline>
+                </svg>
+              </div>
+              <h1 style="font-size: 1.8rem; margin-bottom: 0.75rem; color: var(--text-main); font-weight: 600;">তোমার প্রোফাইল প্রস্তুত</h1>
+              <p style="color: var(--text-muted); font-size: 1.05rem; max-width: 85%; line-height: 1.6;">এখন থেকে সহজেই তোমার সাইকেল ও দৈনিক তথ্য ট্র্যাক করতে পারবে।</p>
+            </div>
+            <div style="width: 100%; max-width: 400px; margin-bottom: 3rem;">
+              <button class="ob-btn w-full" onclick="app.finishOnboardingSafe()">
+                শুরু করি
+              </button>
+              <div class="ob-pagination-group" style="display: flex; justify-content: center; gap: 8px; margin-top: 1.5rem;">
+                <div class="ob-dot"></div>
+                <div class="ob-dot"></div>
+                <div class="ob-dot active"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Main App Container -->
+      <div id="main-app" class="screen hidden">
+        <!-- Home View -->
+        <div id="view-home" class="view active">
+          <header
+            class="main-header"
+            style="
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+            "
+          >
+            <div class="w-full text-center">
+              <h2 id="greeting-name">শুভ সকাল</h2>
+              <p id="home-date" class="text-sm text-muted">১৮ মে, ২০২৬</p>
+            </div>
+          </header>
+          <div class="scroll-content">
+            <div class="cycle-ring-container">
+              <div class="cycle-ring" id="cycle-ring">
+                <svg class="ring-svg" viewBox="0 0 100 100">
+                  <circle class="ring-bg" cx="50" cy="50" r="45"></circle>
+                  <circle
+                    class="ring-progress"
+                    id="ring-progress"
+                    cx="50"
+                    cy="50"
+                    r="45"
+                  ></circle>
+                </svg>
+                <div class="ring-content">
+                  <p class="text-sm text-muted">সাইকেল</p>
+                  <h3 id="ring-day-num">দিন ১২</h3>
+                  <div class="phase-badge" id="ring-phase-badge">ফলিকুলার</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="info-chips mt-4">
+              <div class="chip card" style="flex-direction: column; text-align: center; gap: 0.25rem;">
+                <span class="icon">🩸</span>
+                <small>পরবর্তী পিরিয়ড</small>
+                <strong id="chip-next-period">২৮ মে</strong>
+              </div>
+              <div class="chip card" style="flex-direction: column; text-align: center; gap: 0.25rem;">
+                <span class="icon">🔄</span>
+                <small>সাইকেল</small>
+                <strong id="chip-cycle-length">২৮ দিন</strong>
+              </div>
+              <div class="chip card" style="flex-direction: column; text-align: center; gap: 0.25rem;">
+                <span class="icon">💧</span>
+                <small>পিরিয়ড</small>
+                <strong id="chip-period-length">৫ দিন</strong>
+              </div>
+            </div>
+
+            <div class="card mt-4" style="display: flex; align-items: center; gap: 1rem; padding: 1.25rem; background: radial-gradient(circle at top right, color-mix(in srgb, var(--primary) 10%, transparent), transparent), var(--card); border: none; box-shadow: 0 4px 20px rgba(0,0,0,0.02); border-radius: 20px; transition: opacity 0.3s;" id="home-phase-card">
+              <div id="home-phase-icon" style="font-size: 1.75rem; animation: float 3s ease-in-out infinite;">✨</div>
+              <div>
+                <p id="home-advice" style="font-size: 0.95rem; font-weight: 500; line-height: 1.4; color: var(--text);">আজ একটু রেস্ট নিলে ভালো লাগতে পারে 💕</p>
+              </div>
+            </div>
+
+            <!-- Home Cycle Analysis Insight -->
+            <div id="home-cycle-analysis-card" style="display: none; align-items: center; gap: 0.75rem; padding: 1rem; margin-top: 1rem; border-radius: 16px; background: color-mix(in srgb, var(--primary) 5%, transparent); border: 1px solid color-mix(in srgb, var(--primary) 20%, transparent); animation: fadeUp 0.4s ease-out;">
+              <span id="home-cycle-icon" style="font-size: 1.5rem;">🌿</span>
+              <p id="home-cycle-text" style="font-size: 0.9rem; font-weight: 500; color: var(--text); margin: 0;">তোমার সাইকেল মোটামুটি নিয়মিত</p>
+            </div>
+
+            <div id="home-wellness-banner" class="mt-4" onclick="app.openWellness()" style="position: relative; padding: 1.5rem; border-radius: 24px; background: linear-gradient(135deg, color-mix(in srgb, var(--secondary) 15%, var(--bg)) 0%, var(--bg) 100%); cursor: pointer; overflow: hidden; border: 1px solid var(--border); box-shadow: 0 8px 24px rgba(0,0,0,0.05); transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);">
+              <div style="position: absolute; right: -20px; top: -30px; width: 120px; height: 120px; background: radial-gradient(circle, color-mix(in srgb, var(--primary) 15%, transparent) 0%, transparent 70%); border-radius: 50%;"></div>
+              <div style="position: absolute; right: 30px; bottom: -30px; width: 100px; height: 100px; background: radial-gradient(circle, color-mix(in srgb, var(--secondary) 25%, transparent) 0%, transparent 70%); border-radius: 50%;"></div>
+              <div style="position: relative; z-index: 1;">
+                <h4 id="home-wellness-title" style="font-size: 1.15rem; color: var(--primary); font-weight: 600; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem;">🌿 নিজের একটু যত্ন নাও</h4>
+                <p id="home-wellness-subtitle" style="font-size: 0.95rem; line-height: 1.5; opacity: 0.85; max-width: 85%; margin-bottom: 1.25rem;">আজ শরীরকে একটু আরাম দাও। বেশি চাপ নিও ঘাট আজ।</p>
+                <div style="display: flex; align-items: center; justify-content: space-between;">
+                  <small style="font-size: 0.8rem; font-weight: 600; color: var(--primary); opacity: 0.8; background: color-mix(in srgb, var(--primary) 15%, transparent); padding: 6px 14px; border-radius: 20px;">চাপ দিলে বিস্তারিত দেখাবে</small>
+                  <div style="width: 32px; height: 32px; background: var(--card); border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 12px rgba(0,0,0,0.1); color: var(--primary);">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                      <polyline points="9 18 15 12 9 6"></polyline>
+                    </svg>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="streak-card card mt-4" style="background: linear-gradient(135deg, color-mix(in srgb, var(--primary) 10%, transparent) 0%, color-mix(in srgb, var(--secondary) 10%, transparent) 100%); border: 1px solid color-mix(in srgb, var(--primary) 15%, transparent);">
+              <div class="flex-between">
+                <div>
+                  <h4 style="font-size: 1.1rem; display: flex; align-items: center; gap: 0.5rem;"><span class="flame-icon">🔥</span> দারুণ করছো!</h4>
+                  <p class="text-sm text-muted mt-1">তুমি <strong class="text-primary" id="streak-current">৫ দিন</strong> ধরে লগ করছো!</p>
+                </div>
+                <div style="text-align: right;">
+                  <small class="text-muted">সর্বোচ্চ</small>
+                  <div style="font-weight: 600; font-size: 1.1rem;" id="streak-longest">১২ দিন</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="card mt-4 quick-log-card" onclick="app.switchTab('log')" style="background: linear-gradient(135deg, var(--primary), var(--accent)); color: white; cursor: pointer; transition: transform 0.2s, box-shadow 0.2s; box-shadow: 0 4px 15px rgba(255, 107, 158, 0.3);">
+              <div class="flex-between" style="padding: 0.5rem 0;">
+                <h4 style="font-size: 1.1rem; font-weight: 600; color: white;">আজকের তথ্য যোগ করো ✏️</h4>
+                <div style="background: rgba(255,255,255,0.2); padding: 8px; border-radius: 50%; display: flex; align-items: center; justify-content: center;">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="12" y1="5" x2="12" y2="19"></line>
+                    <line x1="5" y1="12" x2="19" y2="12"></line>
+                  </svg>
+                </div>
+              </div>
+            </div>
+
+            <div class="card mt-4 mb-4">
+              <div class="flex-between mb-3">
+                <h4>সাম্প্রতিক মেজাজ</h4>
+                <small class="text-muted" style="font-size: 0.75rem;">শেষ ৫ দিন</small>
+              </div>
+              <div class="mood-timeline" style="display: flex; gap: 0.5rem; justify-content: space-between; overflow-x: auto; padding-bottom: 0.5rem; scrollbar-width: none;">
+                <div style="text-align: center;"><div style="font-size: 1.75rem;">😊</div><small class="text-muted" style="font-size: 0.7rem; display: block; margin-top: 4px;">আজ</small></div>
+                <div style="text-align: center;"><div style="font-size: 1.75rem;">😐</div><small class="text-muted" style="font-size: 0.7rem; display: block; margin-top: 4px;">কাল</small></div>
+                <div style="text-align: center;"><div style="font-size: 1.75rem;">😴</div><small class="text-muted" style="font-size: 0.7rem; display: block; margin-top: 4px;">১৬ মে</small></div>
+                <div style="text-align: center;"><div style="font-size: 1.75rem;">😢</div><small class="text-muted" style="font-size: 0.7rem; display: block; margin-top: 4px;">১৫ মে</small></div>
+                <div style="text-align: center;"><div style="font-size: 1.75rem;">😊</div><small class="text-muted" style="font-size: 0.7rem; display: block; margin-top: 4px;">১৪ মে</small></div>
+              </div>
+            </div>
+
+            <div class="mb-4 mt-6">
+              <div style="padding: 0 0.5rem; margin-bottom: 1rem;">
+                <h4 style="font-size: 1.15rem; display: flex; align-items: center; gap: 0.5rem; margin: 0;">🌸 সাম্প্রতিক পরিবর্তন</h4>
+                <small class="text-muted" style="font-size: 0.8rem; margin-top: 4px; display: block;">তোমার সাম্প্রতিক লগ থেকে</small>
+              </div>
+              <div id="home-insights" class="insights-row" style="display: flex; gap: 0.75rem; overflow-x: auto; padding: 0.25rem 0.5rem 1rem 0.5rem; margin: 0 -0.5rem; scroll-snap-type: x mandatory; scrollbar-width: none;">
+                <!-- dynamic content populated by JS -->
+                <div class="card" style="min-width: 200px; flex: 0 0 auto; scroll-snap-align: start; padding: 1rem; border-radius: 20px; border: 1px solid color-mix(in srgb, var(--primary) 10%, transparent); background: linear-gradient(135deg, color-mix(in srgb, var(--primary) 3%, transparent), color-mix(in srgb, var(--secondary) 1%, transparent));">
+                  <span style="font-size: 1.25rem; margin-bottom: 0.5rem; display: block;">🌸</span>
+                  <p style="font-size: 0.9rem; font-weight: 500; line-height: 1.4; color: var(--text);">আরও কিছুদিন লগ করলে এখানে তোমার প্যাটার্ন দেখাবে</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Calendar View -->
+        <div id="view-calendar" class="view">
+          <header class="sticky-header">
+            <div class="flex-between">
+              <h2>ক্যালেন্ডার</h2>
+              <div style="display: flex; gap: 8px; align-items: center">
+                <button class="btn-icon" onclick="app.prevMonth()">◀</button>
+                <h4
+                  id="cal-month-year"
+                  class="text-accent"
+                  style="min-width: 90px; text-align: center"
+                ></h4>
+                <button class="btn-icon" onclick="app.nextMonth()">▶</button>
+              </div>
+            </div>
+          </header>
+          <div class="scroll-content">
+            <div class="card">
+              <div class="cal-header">
+                <div class="cal-day-name">রবি</div>
+                <div class="cal-day-name">সোম</div>
+                <div class="cal-day-name">মঙ্গল</div>
+                <div class="cal-day-name">বুধ</div>
+                <div class="cal-day-name">বৃহঃ</div>
+                <div class="cal-day-name">শুক্র</div>
+                <div class="cal-day-name">শনি</div>
+              </div>
+              <div id="cal-days" class="cal-days-grid mt-2"></div>
+            </div>
+
+            <div class="card mt-4" style="background: linear-gradient(135deg, color-mix(in srgb, var(--primary) 4%, transparent), transparent); border: 1px solid color-mix(in srgb, var(--primary) 10%, transparent); box-shadow: none;">
+              <h4 style="color: var(--primary); margin-bottom: 12px; font-weight: 600;">ক্যালেন্ডার সূচক</h4>
+              <div class="mt-2 text-sm" style="display: flex; gap: 8px; flex-wrap: wrap;">
+                <div style="display: flex; align-items: center; gap: 6px; background: var(--card); padding: 6px 12px; border-radius: 20px; border: 1px solid color-mix(in srgb, var(--primary) 20%, transparent); box-shadow: 0 2px 8px rgba(0,0,0,0.02);">
+                  <div style="width: 10px; height: 10px; border-radius: 50%; background-color: var(--primary);"></div>
+                  <span style="font-weight: 500; font-size: 0.85rem; color: var(--text-main)">পিরিয়ড</span>
+                </div>
+                <div style="display: flex; align-items: center; gap: 6px; background: var(--card); padding: 6px 12px; border-radius: 20px; border: 1px solid color-mix(in srgb, var(--secondary) 20%, transparent); box-shadow: 0 2px 8px rgba(0,0,0,0.02);">
+                  <div style="width: 10px; height: 10px; border-radius: 50%; background-color: var(--secondary);"></div>
+                  <span style="font-weight: 500; font-size: 0.85rem; color: var(--text-main)">উর্বর সময়</span>
+                </div>
+                <div style="display: flex; align-items: center; gap: 6px; background: var(--card); padding: 6px 12px; border-radius: 20px; border: 1px solid color-mix(in srgb, var(--accent) 20%, transparent); box-shadow: 0 2px 8px rgba(0,0,0,0.02);">
+                  <div style="width: 10px; height: 10px; border-radius: 50%; background-color: var(--accent); box-shadow: 0 0 0 2px var(--bg);"></div>
+                  <span style="font-weight: 500; font-size: 0.85rem; color: var(--text-main)">ডিম্বস্ফোটন</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Log View -->
+        <div id="view-log" class="view">
+          <header class="sticky-header">
+            <div class="flex-between">
+              <h2>লগ খাতা</h2>
+              <input
+                type="date"
+                id="log-date"
+                class="log-date-picker"
+                onchange="app.loadLogForDate()"
+              />
+            </div>
+          </header>
+          <div class="scroll-content">
+            <div class="card">
+              <h3>রক্তপ্রবাহ (Flow)</h3>
+              <div class="chip-group mt-2" id="flow-chips">
+                <div
+                  class="chip-item"
+                  onclick="app.toggleSingleChip(this, 'flow-chips')"
+                >
+                  অল্প
+                </div>
+                <div
+                  class="chip-item"
+                  onclick="app.toggleSingleChip(this, 'flow-chips')"
+                >
+                  মাঝারি
+                </div>
+                <div
+                  class="chip-item"
+                  onclick="app.toggleSingleChip(this, 'flow-chips')"
+                >
+                  বেশি
+                </div>
+              </div>
+            </div>
+
+            <div class="card mt-4">
+              <h3>লক্ষণসমূহ</h3>
+              <div class="chip-group mt-2" id="symptom-chips">
+                <div class="chip-item" onclick="app.toggleChip(this)">
+                  ব্যথা
+                </div>
+                <div class="chip-item" onclick="app.toggleChip(this)">
+                  ক্লান্তি
+                </div>
+                <div class="chip-item" onclick="app.toggleChip(this)">
+                  মাথাব্যথা
+                </div>
+                <div class="chip-item" onclick="app.toggleChip(this)">ব্রণ</div>
+                <div class="chip-item" onclick="app.toggleChip(this)">
+                  বমি বমি ভাব
+                </div>
+                <div class="chip-item" onclick="app.toggleChip(this)">
+                  কোমর ব্যথা
+                </div>
+              </div>
+            </div>
+
+            <div class="card mt-4">
+              <h3>মেজাজ</h3>
+              <div class="chip-group mt-2" id="mood-chips">
+                <div
+                  class="chip-item"
+                  onclick="app.toggleSingleChip(this, 'mood-chips')"
+                >
+                  😊 ভালো
+                </div>
+                <div
+                  class="chip-item"
+                  onclick="app.toggleSingleChip(this, 'mood-chips')"
+                >
+                  😐 স্বাভাবিক
+                </div>
+                <div
+                  class="chip-item"
+                  onclick="app.toggleSingleChip(this, 'mood-chips')"
+                >
+                  😢 কষ্টে
+                </div>
+                <div
+                  class="chip-item"
+                  onclick="app.toggleSingleChip(this, 'mood-chips')"
+                >
+                  😡 রাগী
+                </div>
+                <div
+                  class="chip-item"
+                  onclick="app.toggleSingleChip(this, 'mood-chips')"
+                >
+                  😭 সংবেদনশীল
+                </div>
+              </div>
+            </div>
+
+            <div class="card mt-4">
+              <div class="flex-between">
+                <h3>এনার্জি</h3>
+                <span
+                  id="energy-val"
+                  class="font-bold text-accent"
+                  style="font-size: 1.2rem"
+                  >৫০%</span
+                >
+              </div>
+              <div class="mt-2">
+                <input
+                  type="range"
+                  id="log-energy"
+                  min="0"
+                  max="100"
+                  value="50"
+                  style="width: 100%"
+                  oninput="
+                    document.getElementById('energy-val').innerText =
+                      toBanglaNumber(this.value) + '%'
+                  "
+                />
+              </div>
+              <div class="flex-between text-sm text-muted mt-1">
+                <span>০%</span>
+                <span>৫০%</span>
+                <span>১০০%</span>
+              </div>
+            </div>
+
+            <div class="card mt-4">
+              <h3>ঘুম</h3>
+              <div class="chip-group mt-2" id="sleep-chips">
+                <div
+                  class="chip-item"
+                  onclick="app.toggleSingleChip(this, 'sleep-chips')"
+                >
+                  ভালো ঘুম
+                </div>
+                <div
+                  class="chip-item"
+                  onclick="app.toggleSingleChip(this, 'sleep-chips')"
+                >
+                  মাঝারি
+                </div>
+                <div
+                  class="chip-item"
+                  onclick="app.toggleSingleChip(this, 'sleep-chips')"
+                >
+                  কম ঘুম
+                </div>
+              </div>
+            </div>
+
+            <div class="card mt-4 mb-4">
+              <h3>নোট</h3>
+              <textarea
+                id="log-notes"
+                rows="3"
+                placeholder="আজকের দিনটা কেমন কাটলো? আপনার অনুভূতি শেয়ার করুন..."
+                class="modern-textarea mt-3"
+                oninput="app.isEditingNotes = true"
+              ></textarea>
+            </div>
+
+            <div>
+              <button
+                id="save-log-btn"
+                class="btn primary w-full log-save-btn"
+                onclick="app.saveLog()"
+              >
+                আজকের তথ্য সংরক্ষণ করুন 🌸
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Analytics View -->
+        <div id="view-analytics" class="view">
+          <header class="sticky-header">
+            <h2>বিশ্লেষণ</h2>
+          </header>
+          <div
+            class="scroll-content"
+            id="analytics-content"
+          >
+            <div class="card prediction-card mt-2 mb-4">
+              <div class="prediction-header">
+                <h3 class="font-bold">ভবিষ্যদ্বাণী</h3>
+                <span class="prediction-icon">✨</span>
+              </div>
+              <div class="prediction-grid mt-4">
+                <div class="prediction-item">
+                  <span class="prediction-label">পরবর্তী পিরিয়ড</span>
+                  <span class="prediction-value" id="pred-next-period">-</span>
+                </div>
+                <div class="prediction-item">
+                  <span class="prediction-label">ডিম্বস্ফোটন</span>
+                  <span class="prediction-value" id="pred-ovulation">-</span>
+                </div>
+                <div class="prediction-item">
+                  <span class="prediction-label">ফার্টাইল উইন্ডো</span>
+                  <span class="prediction-value" id="pred-fertile-window"
+                    >-</span
+                  >
+                </div>
+              </div>
+            </div>
+
+            <!-- Cycle Analysis Engine -->
+            <div class="card mb-4" id="analytics-cycle-analysis-wrapper">
+              <div class="flex-between">
+                <h3 class="font-bold">সাইকেল বিশ্লেষণ</h3>
+                <span class="text-xs text-muted">পর্যাপ্ততা</span>
+              </div>
+              <div id="analytics-cycle-analysis-container" class="mt-4">
+                <div class="empty-insight-state">
+                  <span class="text-3xl mb-2">📊</span>
+                  <p class="text-muted text-sm text-center">
+                    আরও তথ্য যোগ করলে বিশ্লেষণ দেখা যাবে
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div class="card mb-4" id="health-insights-wrapper">
+              <div class="flex-between">
+                <h3 class="font-bold">হেলথ ইনসাইটস</h3>
+                <span class="text-xs text-muted">প্যাটার্ন</span>
+              </div>
+              <div
+                id="health-insights-container"
+                class="insights-container mt-4"
+              >
+                <div class="empty-insight-state">
+                  <span class="text-3xl mb-2">✨</span>
+                  <p class="text-muted text-sm text-center">
+                    পর্যাপ্ত ডেটা নেই। কিছু দিন লগ করুন নতুন ইনসাইটস পেতে।
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div class="card mb-4">
+              <div class="flex-between">
+                <h3 class="font-bold">সারসংক্ষেপ</h3>
+                <span class="text-xs text-muted">ডেটা</span>
+              </div>
+              <div class="stats-grid-3 mt-4">
+                <div class="stat-box">
+                  <span class="stat-value" id="stat-min-cycle">-</span>
+                  <span class="stat-label">সবচেয়ে ছোট সাইকেল</span>
+                </div>
+                <div class="stat-box">
+                  <span class="stat-value" id="stat-max-cycle">-</span>
+                  <span class="stat-label">সবচেয়ে বড় সাইকেল</span>
+                </div>
+                <div class="stat-box">
+                  <span class="stat-value" id="stat-total-logs">-</span>
+                  <span class="stat-label">মোট লগ করা দিন</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="card mb-4">
+              <div class="flex-between">
+                <h3 class="font-bold">সাইকেল হিস্ট্রি</h3>
+                <span class="text-xs text-muted">দিন</span>
+              </div>
+              <div
+                id="view-chart-cycle"
+                class="chart-box"
+                style="display: none"
+              >
+                <canvas id="chart-cycle-history"></canvas>
+              </div>
+              <div id="empty-chart-cycle" class="empty-chart-state">
+                <span class="text-3xl mb-2">📉</span>
+                <p class="text-muted text-sm text-center">
+                  পর্যবেক্ষণের জন্য কমপক্ষে দুটি পিরিয়ড লগ করুন।
+                </p>
+              </div>
+            </div>
+
+            <div class="card mb-4">
+              <div class="flex-between">
+                <h3 class="font-bold">পিরিয়ড স্থায়িত্ব</h3>
+                <span class="text-xs text-muted">দিন</span>
+              </div>
+              <div
+                id="view-chart-period"
+                class="chart-box"
+                style="display: none"
+              >
+                <canvas id="chart-period-history"></canvas>
+              </div>
+              <div id="empty-chart-period" class="empty-chart-state">
+                <span class="text-3xl mb-2">📊</span>
+                <p class="text-muted text-sm text-center">
+                  পর্যবেক্ষণের জন্য কমপক্ষে দুটি পিরিয়ড লগ করুন।
+                </p>
+              </div>
+            </div>
+
+            <div class="card mb-4">
+              <div class="flex-between">
+                <h3 class="font-bold">সবচেয়ে বেশি লক্ষণ</h3>
+                <span class="text-xs text-muted">ফ্রিকোয়েন্সি</span>
+              </div>
+              <div
+                id="view-chart-symptom"
+                class="chart-box"
+                style="display: none"
+              >
+                <canvas id="chart-symptom-freq"></canvas>
+              </div>
+              <div id="empty-chart-symptom" class="empty-chart-state">
+                <span class="text-3xl mb-2">🤕</span>
+                <p class="text-muted text-sm text-center">
+                  বিশ্লেষণের জন্য কিছু লক্ষণ লগ করুন।
+                </p>
+              </div>
+            </div>
+
+            <div class="card mb-4">
+              <div class="flex-between">
+                <h3 class="font-bold">মেজাজ</h3>
+                <span class="text-xs text-muted">বিতরণ</span>
+              </div>
+              <div
+                id="view-chart-mood"
+                class="chart-box pie-chart-box"
+                style="display: none"
+              >
+                <canvas id="chart-mood-dist"></canvas>
+              </div>
+              <div id="empty-chart-mood" class="empty-chart-state">
+                <span class="text-3xl mb-2">🎭</span>
+                <p class="text-muted text-sm text-center">
+                  বিশ্লেষণের জন্য আপনার মেজাজ লগ করুন।
+                </p>
+              </div>
+            </div>
+
+            <!-- Smart Health Insights Start -->
+            <div class="card mb-4" id="smart-health-insight-wrapper">
+              <div class="flex-between">
+                <h3 class="font-bold">🧠 স্মার্ট স্বাস্থ্য বিশ্লেষণ</h3>
+                <span class="text-xs text-muted">প্যাটার্ন</span>
+              </div>
+              <div id="smart-insights-container" class="insights-container mt-4">
+                <div class="empty-insight-state">
+                  <span class="text-3xl mb-2">🌸</span>
+                  <p class="text-muted text-sm text-center">
+                    আরও কিছু তথ্য যোগ করলে ব্যক্তিগত বিশ্লেষণ দেখা যাবে
+                  </p>
+                </div>
+              </div>
+            </div>
+            <!-- Smart Health Insights End -->
+
+          </div>
+        </div>
+
+        <!-- Settings View -->
+        <div id="view-settings" class="view">
+          <header class="sticky-header">
+            <h2>সেটিংস</h2>
+          </header>
+          <div class="scroll-content">
+            <div class="card">
+              <h3>প্রোফাইল</h3>
+              <div class="form-group mt-2">
+                <label>নাম</label>
+                <input
+                  type="text"
+                  id="settings-name"
+                  value="ব্যবহারকারী"
+                  onchange="app.saveSettingsProfile()"
+                />
+              </div>
+            </div>
+
+            <div class="card mt-4">
+              <h3>থিম</h3>
+              <div class="theme-options mt-4" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem;">
+                <!-- Rose Bloom -->
+                <div class="theme-card" onclick="app.setTheme('rose-bloom')" id="theme-card-rose-bloom" style="border: 2px solid transparent; border-radius: 12px; padding: 1rem; cursor: pointer; text-align: center; background: rgba(0,0,0,0.02); transition: all 0.3s ease;">
+                  <div style="width: 40px; height: 40px; border-radius: 50%; background: linear-gradient(135deg, #E75480, #F9A8C9); margin: 0 auto 0.5rem; box-shadow: 0 4px 10px rgba(231,84,128,0.2);"></div>
+                  <span style="font-size: 0.85rem; font-weight: 500;">রোজ ব্লুম</span>
+                </div>
+                <!-- Lavender Dream -->
+                <div class="theme-card" onclick="app.setTheme('lavender-dream')" id="theme-card-lavender-dream" style="border: 2px solid transparent; border-radius: 12px; padding: 1rem; cursor: pointer; text-align: center; background: rgba(0,0,0,0.02); transition: all 0.3s ease;">
+                  <div style="width: 40px; height: 40px; border-radius: 50%; background: linear-gradient(135deg, #9B6B9E, #D4BEE4); margin: 0 auto 0.5rem; box-shadow: 0 4px 10px rgba(155,107,158,0.2);"></div>
+                  <span style="font-size: 0.85rem; font-weight: 500;">ল্যাভেন্ডার</span>
+                </div>
+                <!-- Peach Glow -->
+                <div class="theme-card" onclick="app.setTheme('peach-glow')" id="theme-card-peach-glow" style="border: 2px solid transparent; border-radius: 12px; padding: 1rem; cursor: pointer; text-align: center; background: rgba(0,0,0,0.02); transition: all 0.3s ease;">
+                  <div style="width: 40px; height: 40px; border-radius: 50%; background: linear-gradient(135deg, #F08A5D, #FFD3B6); margin: 0 auto 0.5rem; box-shadow: 0 4px 10px rgba(240,138,93,0.2);"></div>
+                  <span style="font-size: 0.85rem; font-weight: 500;">পিচ গ্লো</span>
+                </div>
+                <!-- Night Bloom -->
+                <div class="theme-card" onclick="app.setTheme('night-bloom')" id="theme-card-night-bloom" style="border: 2px solid transparent; border-radius: 12px; padding: 1rem; cursor: pointer; text-align: center; background: rgba(0,0,0,0.02); transition: all 0.3s ease;">
+                  <div style="width: 40px; height: 40px; border-radius: 50%; background: linear-gradient(135deg, #FF7FA5, #0A0A0C); margin: 0 auto 0.5rem; box-shadow: 0 4px 10px rgba(255,127,165,0.2);"></div>
+                  <span style="font-size: 0.85rem; font-weight: 500;">নাইট ব্লুম</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="card mt-8 mb-4">
+              <h3 style="color: var(--primary);">ডেটা ও ব্যাকআপ</h3>
+              <div class="mt-4" style="display: flex; flex-direction: column; gap: 0.75rem;">
+                <!-- <button class="btn" style="background: rgba(0,0,0,0.05); color: var(--text-main); width: 100%; border: 1px solid var(--border);" onclick="app.exportData()">ডেটা ব্যাকআপ (Export)</button>
+                <div style="position: relative;">
+                   <input type="file" id="import-file" style="display:none;" accept=".json" onchange="app.importData(event)" />
+                   <button class="btn" style="background: rgba(0,0,0,0.05); color: var(--text-main); width: 100%; border: 1px solid var(--border);" onclick="document.getElementById('import-file').click()">ডেটা রিস্টোর (Import)</button>
+                </div> -->
+                <button class="btn" style="background: rgba(0,0,0,0.05); color: var(--text-main); width: 100%; border: 1px solid var(--border);" onclick="app.confirmAction('reset_settings')">সেটিংস রিসেট করুন</button>
+                <button class="btn" style="background: rgba(255,107,158,0.1); color: var(--primary); width: 100%; border: 1px solid color-mix(in srgb, var(--primary) 20%, transparent);" onclick="app.confirmAction('reset_data')">সব ডেটা মুছে ফেলুন</button>
+              </div>
+            </div>
+
+            <div class="card mt-8 mb-4">
+              <h3>নিরাপত্তা</h3>
+              <div class="flex-between mt-2">
+                <span>পিন লক</span>
+                <div
+                  class="toggle"
+                  id="pin-toggle"
+                  onclick="app.togglePinSettings()"
+                >
+                  <div class="slider"></div>
+                </div>
+              </div>
+              <div id="change-pin-wrapper" class="hidden mt-8 text-center">
+                <button
+                  class="btn"
+                  style="
+                    border: 1px solid var(--border);
+                    width: 100%;
+                    font-size: 0.95rem;
+                    padding: 0.5rem;
+                  "
+                  onclick="app.startChangePin()"
+                >
+                  পিন পরিবর্তন করুন
+                </button>
+              </div>
+            </div>
+
+            <div class="card mt-8 mb-4">
+              <h3>রিমাইন্ডার (নোটিফিকেশন)</h3>
+              <div class="flex-between mt-2">
+                <span>রিমাইন্ডার চালু করুন</span>
+                <div
+                  class="toggle"
+                  id="reminder-toggle"
+                  onclick="app.toggleReminder()"
+                >
+                  <div class="slider"></div>
+                </div>
+              </div>
+              <div id="reminder-time-wrapper" class="hidden mt-4">
+                <div class="form-group">
+                  <label>রিমাইন্ডারের সময়</label>
+                  <input type="time" id="reminder-time" value="08:00" onchange="app.saveReminderTime()">
+                </div>
+              </div>
+            </div>
+
+            <div
+              class="card mt-8"
+              style="text-align: center; padding: 2rem 1rem;"
+            >
+              <img
+                src="https://lh3.googleusercontent.com/d/1TBzsW-gNcqL9elNRNF6G4mIs-xUTMWZ1"
+                alt="ফুলঝরি লোগো"
+                class="about-logo"
+                referrerpolicy="no-referrer"
+                onerror="this.style.display = 'none'"
+              />
+              <h3 class="mt-2" style="color: var(--primary)">
+                ফুলঝরি – পিরিয়ড ট্র্যাকার
+              </h3>
+              <p class="text-sm text-muted">
+                নিজের শরীর চেনো, নিজেকে ভালো রাখো 🌸
+              </p>
+              <p class="text-xs text-muted mt-2">সংস্করণ ১.০.০</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Bottom Navigation -->
+        <nav id="bottom-nav">
+          <div class="nav-item active" onclick="app.switchTab('home')">
+            <div class="nav-icon">🏠</div>
+            <small>হোম</small>
+          </div>
+          <div class="nav-item" onclick="app.switchTab('calendar')">
+            <div class="nav-icon">📅</div>
+            <small>ক্যালেন্ডার</small>
+          </div>
+          <div class="nav-item nav-fab" onclick="app.switchTab('log')">
+            <div class="fab-icon">✏️</div>
+            <small>লগ</small>
+          </div>
+          <div class="nav-item" onclick="app.switchTab('analytics')">
+            <div class="nav-icon">📊</div>
+            <small>বিশ্লেষণ</small>
+          </div>
+          <div class="nav-item" onclick="app.switchTab('settings')">
+            <div class="nav-icon">⚙️</div>
+            <small>সেটিংস</small>
+          </div>
+        </nav>
+
+        <!-- Day Details Modal -->
+        <div
+          id="day-modal"
+          class="wellness-backdrop hidden"
+          onclick="app.closeDayModal(event)"
+          style="z-index: 9999;"
+        >
+          <div class="wellness-bottom-sheet" onclick="event.stopPropagation()" id="day-sheet-content">
+            <div class="sheet-top-grip" id="day-sheet-grip">
+               <div class="sheet-handle"></div>
+            </div>
+            <div class="sheet-header" style="text-align: left; padding: 0 1.5rem;">
+                <h3 id="modal-date-title" class="mb-1" style="font-weight: 700; color: var(--text-main); font-size: 1.25rem;"></h3>
+                <p id="modal-date-subtitle" style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 8px;">আজকের তথ্য</p>
+            </div>
+            <div class="sheet-scroll-content pt-2">
+                <div id="modal-content-details"></div>
+                <button
+                  id="mark-period-btn"
+                  class="btn w-full mt-4"
+                  style="display: none; background: color-mix(in srgb, var(--primary) 10%, transparent); border: 1px solid color-mix(in srgb, var(--primary) 20%, transparent); color: var(--primary); font-weight: 600; font-size: 1.05rem; padding: 14px; border-radius: 16px; box-shadow: none;"
+                  onclick="app.markPeriodOngoing()"
+                >
+                  🌸 পিরিয়ড চলছে
+                </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Wellness Sheet -->
+        <div
+          id="wellness-sheet"
+          class="wellness-backdrop hidden"
+          onclick="app.closeWellness(event)"
+        >
+          <div class="wellness-bottom-sheet" onclick="event.stopPropagation()">
+            <div class="sheet-handle" onclick="app.closeWellness(event)"></div>
+            <div class="sheet-header flex-between mb-4">
+              <h3 id="wellness-sheet-title">🌿 নিজের যত্ন</h3>
+              <button class="btn-icon" onclick="app.closeWellness(event)" style="font-size:1.5rem; border:none; background:transparent;">✕</button>
+            </div>
+            <div class="sheet-scroll-content">
+              <div id="wellness-dynamic-content"></div>
+              
+              <h4 class="mt-8 mb-4" style="color: var(--primary); display: flex; align-items: center; justify-content: space-between;">
+                <span>জেনে রাখা ভালো 📚</span>
+                <small onclick="app.showBookmarkedTips()" style="cursor: pointer; color: var(--text-muted); font-weight: normal; font-size: 0.8rem; background: rgba(0,0,0,0.05); padding: 4px 10px; border-radius: 20px;">সংরক্ষিত টিপস</small>
+              </h4>
+              
+              <div id="education-articles">
+                <!-- 1 -->
+                <div class="accordion-item" onclick="this.classList.toggle('active')">
+                  <div class="accordion-header flex-between font-medium">
+                    🌸 মাসিক কী? 
+                    <div>
+                      <span class="bookmark-icon" onclick="app.toggleBookmark('edu_1', event)" style="margin-right: 8px; font-size: 1.1rem; color: var(--text-muted);">☆</span>
+                      <span class="accordion-icon">+</span>
+                    </div>
+                  </div>
+                  <div class="accordion-body">
+                    <div class="accordion-body-content text-sm text-muted">
+                      প্রতি মাসে মেয়েদের জরায়ুর ভেতরের আবরণ খসে গিয়ে রক্তের সাথে যোনিপথ দিয়ে বেরিয়ে আসাকে মাসিক বা পিরিয়ড বলে। এটি একটি সম্পূর্ণ স্বাভাবিক ও সুস্থ প্রক্রিয়া।
+                    </div>
+                  </div>
+                </div>
+                
+                <!-- 2 -->
+                <div class="accordion-item" onclick="this.classList.toggle('active')">
+                  <div class="accordion-header flex-between font-medium">
+                    🌱 সাইকেলের ৪টি ধাপ 
+                    <div>
+                      <span class="bookmark-icon" onclick="app.toggleBookmark('edu_2', event)" style="margin-right: 8px; font-size: 1.1rem; color: var(--text-muted);">☆</span>
+                      <span class="accordion-icon">+</span>
+                    </div>
+                  </div>
+                  <div class="accordion-body">
+                    <div class="accordion-body-content text-sm text-muted">
+                      একটি সাইকেল সাধারণত ৪টি ভাগে ভাগ হয়: ১. মেন্সট্রুয়েশন (মাসিক), ২. ফলিকুলার পর্যায়, ৩. ওভুলেশন (ডিম্বস্ফোটন), এবং ৪. লুটিয়াল পর্যায়।
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 3 -->
+                <div class="accordion-item" onclick="this.classList.toggle('active')">
+                  <div class="accordion-header flex-between font-medium">
+                    🩸 মাসিকের সময় করণীয় 
+                    <div>
+                      <span class="bookmark-icon" onclick="app.toggleBookmark('edu_3', event)" style="margin-right: 8px; font-size: 1.1rem; color: var(--text-muted);">☆</span>
+                      <span class="accordion-icon">+</span>
+                    </div>
+                  </div>
+                  <div class="accordion-body">
+                    <div class="accordion-body-content text-sm text-muted">
+                      পরিষ্কার-পরিচ্ছন্নতা খুব জরুরি। প্রতি ৪-৬ ঘণ্টা পরপর প্যাড বদলাতে হবে। হালকা গরম পানিতে গোসল করলে পেটের ব্যথা বা অস্বস্তি কমতে পারে।
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 4 -->
+                <div class="accordion-item" onclick="this.classList.toggle('active')">
+                  <div class="accordion-header flex-between font-medium">
+                    🩺 হরমোন কীভাবে কাজ করে? 
+                    <div>
+                      <span class="bookmark-icon" onclick="app.toggleBookmark('edu_4', event)" style="margin-right: 8px; font-size: 1.1rem; color: var(--text-muted);">☆</span>
+                      <span class="accordion-icon">+</span>
+                    </div>
+                  </div>
+                  <div class="accordion-body">
+                    <div class="accordion-body-content text-sm text-muted">
+                      পিরিয়ড সাইকেলের জন্য ইস্ট্রোজেন এবং প্রোজেস্টেরন হরমোন প্রধানত দায়ী। ইস্ট্রোজেন ডিম্বাণু তৈরিতে এবং প্রোজেস্টেরন জরায়ুকে গর্ভধারণের জন্য প্রস্তুত করতে সাহায্য করে।
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 5 -->
+                <div class="accordion-item" onclick="this.classList.toggle('active')">
+                  <div class="accordion-header flex-between font-medium">
+                    🌡️ বাসাল বডি টেম্পারেচার (BBT) কী? 
+                    <div>
+                      <span class="bookmark-icon" onclick="app.toggleBookmark('edu_5', event)" style="margin-right: 8px; font-size: 1.1rem; color: var(--text-muted);">☆</span>
+                      <span class="accordion-icon">+</span>
+                    </div>
+                  </div>
+                  <div class="accordion-body">
+                    <div class="accordion-body-content text-sm text-muted">
+                      ঘুম থেকে ওঠার পর শরীরের স্বাভাবিক তাপমাত্রাকে BBT বলে। ডিম্বস্ফোটনের (Ovulation) ঠিক পর শরীরের তাপমাত্রা সামান্য বেড়ে যায়, যা ট্র্যাক করে উর্বর সময় বোঝা যায়।
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 6 -->
+                <div class="accordion-item" onclick="this.classList.toggle('active')">
+                  <div class="accordion-header flex-between font-medium">
+                    🥴 পিরিয়ডের ব্যথা কমানোর উপায় 
+                    <div>
+                      <span class="bookmark-icon" onclick="app.toggleBookmark('edu_6', event)" style="margin-right: 8px; font-size: 1.1rem; color: var(--text-muted);">☆</span>
+                      <span class="accordion-icon">+</span>
+                    </div>
+                  </div>
+                  <div class="accordion-body">
+                    <div class="accordion-body-content text-sm text-muted">
+                      জরায়ু সংকুচিত হওয়ার কারণে ব্যথা হয়। পেটে গরম পানির ব্যাগ (Hot water bag) ব্যবহার, হালকা ম্যাসাজ, আদা চা বা ক্যামোমাইল চা পানে অনেক আরাম পাওয়া যায়।
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 7 -->
+                <div class="accordion-item" onclick="this.classList.toggle('active')">
+                  <div class="accordion-header flex-between font-medium">
+                    🤰 উর্বর সময় (Fertile Window) 
+                    <div>
+                      <span class="bookmark-icon" onclick="app.toggleBookmark('edu_7', event)" style="margin-right: 8px; font-size: 1.1rem; color: var(--text-muted);">☆</span>
+                      <span class="accordion-icon">+</span>
+                    </div>
+                  </div>
+                  <div class="accordion-body">
+                    <div class="accordion-body-content text-sm text-muted">
+                      ডিম্বস্ফোটনের দিনের আগে-পিছে প্রায় ৬ দিন হলো উর্বর সময়। এই সময় প্রেগন্যান্ট হওয়ার সম্ভাবনা সবচেয়ে বেশি থাকে। সাদা স্রাব (Cervical mucus) কিছুটা পাতলা ও পিচ্ছিল হয়।
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 8 -->
+                <div class="accordion-item" onclick="this.classList.toggle('active')">
+                  <div class="accordion-header flex-between font-medium">
+                    🤔 সাধারণ কিছু ভুল ধারণা 
+                    <div>
+                      <span class="bookmark-icon" onclick="app.toggleBookmark('edu_8', event)" style="margin-right: 8px; font-size: 1.1rem; color: var(--text-muted);">☆</span>
+                      <span class="accordion-icon">+</span>
+                    </div>
+                  </div>
+                  <div class="accordion-body">
+                    <div class="accordion-body-content text-sm text-muted">
+                      "পিরিয়ডের সময় টক খাওয়া বা গোসল করা যাবে না"— এই ধারণাগুলো বৈজ্ঞানিকভাবে ভিত্তিহীন। পরিষ্কার পরিচ্ছন্ন থাকা এবং স্বাভাবিক পুষ্টিকর খাবার খাওয়া এই সময়ে বেশি জরুরি।
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 9 -->
+                <div class="accordion-item" onclick="this.classList.toggle('active')">
+                  <div class="accordion-header flex-between font-medium">
+                    ⚠️ কখন ডাক্তারের পরামর্শ নেওয়া উচিত 
+                    <div>
+                      <span class="bookmark-icon" onclick="app.toggleBookmark('edu_9', event)" style="margin-right: 8px; font-size: 1.1rem; color: var(--text-muted);">☆</span>
+                      <span class="accordion-icon">+</span>
+                    </div>
+                  </div>
+                  <div class="accordion-body">
+                    <div class="accordion-body-content text-sm text-muted">
+                      যদি অতিরিক্ত রক্তপাত হয়, খুব বেশি ব্যথা থাকে যা ওষুধেও কমছে না, বা সাইকেল যদি বারবার ২১ দিনের কম বা ৪৫ দিনের বেশি হয়, তবে অবশ্যই ডাক্তার দেখাবে।
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 10 -->
+                <div class="accordion-item" onclick="this.classList.toggle('active')">
+                  <div class="accordion-header flex-between font-medium">
+                    📅 নিয়মিত ট্র্যাকিং কেন জরুরি 
+                    <div>
+                      <span class="bookmark-icon" onclick="app.toggleBookmark('edu_10', event)" style="margin-right: 8px; font-size: 1.1rem; color: var(--text-muted);">☆</span>
+                      <span class="accordion-icon">+</span>
+                    </div>
+                  </div>
+                  <div class="accordion-body">
+                    <div class="accordion-body-content text-sm text-muted">
+                      ট্র্যাক করলে নিজের শরীরকে বোঝা যায়, পরবর্তী মাসিকের প্রস্তুতি নেওয়া যায় এবং ডাক্তারকে সঠিক তথ্য দিয়ে ভালো গাইডেন্স পাওয়া যায়।
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
+              <!-- Empty state for bookmarks -->
+              <div id="education-empty-state" class="hidden text-center mt-6">
+                <div style="font-size: 3rem; margin-bottom: 1rem;">🌸</div>
+                <h4 style="color: var(--text-main); margin-bottom: 0.5rem;">নিজের শরীর সম্পর্কে জানো এবং যত্ন নাও</h4>
+                <p style="color: var(--text-muted); font-size: 0.9rem;">কোনো সংরক্ষিত টিপস নেই।</p>
+                <button class="btn mt-4" style="background: rgba(0,0,0,0.05); color: var(--text-main); border-radius: 20px; padding: 6px 16px; font-size: 0.9rem;" onclick="app.showAllEducation()">সব আর্টিকেল দেখুন</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Confirmation Modal -->
+        <div id="confirm-modal" class="hidden" style="position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 1000; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(4px);">
+          <div style="background: var(--card); border-radius: 24px; padding: 1.5rem; width: 90%; max-width: 320px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); animation: fadeUp 0.3s ease-out;">
+            <div style="text-align: center; font-size: 2.5rem; margin-bottom: 0.5rem;" id="confirm-icon">⚠️</div>
+            <h3 id="confirm-title" style="text-align: center; color: var(--text-main); margin-bottom: 0.5rem; font-size: 1.25rem;">নিশ্চিত করুন</h3>
+            <p id="confirm-msg" style="text-align: center; color: var(--text-muted); font-size: 0.95rem; margin-bottom: 1.5rem; line-height: 1.5;">আপনি কি নিশ্চিত?</p>
+            <div style="display: flex; gap: 1rem;">
+              <button class="btn" style="flex: 1; background: rgba(0,0,0,0.05); color: var(--text-main);" onclick="app.closeConfirm()">বাতিল</button>
+              <button id="confirm-action-btn" class="btn" style="flex: 1; background: var(--primary); color: white;">নিশ্চিত করুন</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Toast Feedback -->
+        <div id="toast" class="toast">লগ সংরক্ষণ করা হয়েছে! ✅</div>
+      </div>
+    </div>
+    <script type="module" src="/src/app.js"></script>
+  </body>
+</html>
