@@ -114,7 +114,9 @@ const app = {
   pendingAction: null,
   pendingImportPayload: null,
   isEditingNotes: false,
+  isLogDirty: false,
   _currentModalDate: null,
+  _currentLogDate: null,
   predictions: null,
   reminderInterval: null,
   calContextDate: new Date(),
@@ -197,6 +199,8 @@ const app = {
       lastPeriodStart,
       cycleLength: Math.min(Math.max(cycleLength, 20), 45),
       periodLength: Math.min(Math.max(periodLength, 2), 12),
+      isCycleUnknown: Boolean(data.isCycleUnknown),
+      isPeriodUnknown: Boolean(data.isPeriodUnknown),
       setupDone: Boolean(data.setupDone)
     };
   },
@@ -225,12 +229,30 @@ const app = {
   validateDailyLog(log, dateStr) {
     if (!log || typeof log !== 'object') log = {};
     const flow = typeof log.flow === 'string' ? log.flow : '';
-    const mood = typeof log.mood === 'string' ? log.mood : '';
-    const energyNum = parseInt(log.energy, 10);
-    const energy = !isNaN(energyNum) ? Math.min(Math.max(energyNum, 0), 100) : 50;
-    const sleepQuality = typeof log.sleepQuality === 'string' ? log.sleepQuality : (typeof log.sleep === 'string' ? log.sleep : '');
-    const sleepHoursNum = parseFloat(log.sleepHours);
-    const sleepHours = !isNaN(sleepHoursNum) ? sleepHoursNum : null;
+    
+    // Canonical mood mapping & normalization
+    let mood = typeof log.mood === 'string' ? log.mood : '';
+    if (mood === '😡 রাগী') mood = '😠 বিরক্ত';
+    if (mood === '😭 সংবেদনশীল') mood = '😢 কষ্টে';
+
+    // Canonical energy: 1 to 10 scale
+    let energyNum = parseInt(log.energy, 10);
+    let energy = 5;
+    if (!isNaN(energyNum)) {
+      if (energyNum > 10) {
+        energy = Math.min(10, Math.max(1, Math.round(energyNum / 10)));
+      } else {
+        energy = Math.min(10, Math.max(1, energyNum));
+      }
+    }
+
+    // Canonical sleep: duration (hours as number) + quality (string)
+    const sleepQuality = typeof log.sleepQuality === 'string' && log.sleepQuality ? log.sleepQuality : (typeof log.sleep === 'string' ? log.sleep : '');
+    let sleepHours = parseFloat(log.sleepHours);
+    if (isNaN(sleepHours) || sleepHours < 1 || sleepHours > 24) {
+      sleepHours = 7.5;
+    }
+
     const symptoms = Array.isArray(log.symptoms) ? log.symptoms.filter(s => typeof s === 'string') : [];
     const notes = typeof log.notes === 'string' ? log.notes : '';
     const periodStarted = Boolean(log.periodStarted || (flow && log.periodStarted !== false));
@@ -472,14 +494,29 @@ const app = {
         streak: STATE.streak,
         bookmarks: STATE.bookmarks
       };
-      const jsonStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(exportPayload, null, 2));
-      const downloadAnchor = document.createElement('a');
       const dateStr = getLocalDateString(new Date());
-      downloadAnchor.setAttribute("href", jsonStr);
-      downloadAnchor.setAttribute("download", `fuljhori-backup-${dateStr}.json`);
+      const fileName = `fuljhori-backup-${dateStr}.json`;
+      const jsonContent = JSON.stringify(exportPayload, null, 2);
+
+      let downloadUrl;
+      let isBlob = false;
+      if (typeof Blob !== 'undefined' && typeof URL !== 'undefined' && URL.createObjectURL) {
+        const blob = new Blob([jsonContent], { type: 'application/json;charset=utf-8' });
+        downloadUrl = URL.createObjectURL(blob);
+        isBlob = true;
+      } else {
+        downloadUrl = "data:text/json;charset=utf-8," + encodeURIComponent(jsonContent);
+      }
+
+      const downloadAnchor = document.createElement('a');
+      downloadAnchor.setAttribute("href", downloadUrl);
+      downloadAnchor.setAttribute("download", fileName);
       document.body.appendChild(downloadAnchor);
       downloadAnchor.click();
       downloadAnchor.remove();
+      if (isBlob) {
+        setTimeout(() => URL.revokeObjectURL(downloadUrl), 2000);
+      }
       this.showToast('✅ ব্যাকআপ ফাইল সংরক্ষিত হয়েছে');
     } catch (e) {
       console.error('Export error:', e);
@@ -553,26 +590,82 @@ const app = {
     this.pendingAction = null;
   },
 
+  confirmDiscardUnsaved(onConfirm) {
+    const modal = document.getElementById('confirm-modal');
+    if (!modal) {
+      if (onConfirm) onConfirm();
+      return;
+    }
+    const icon = document.getElementById('confirm-icon');
+    const title = document.getElementById('confirm-title');
+    const msg = document.getElementById('confirm-msg');
+    const actionBtn = document.getElementById('confirm-action-btn');
+    const cancelBtn = document.getElementById('confirm-cancel-btn');
+
+    if (icon) icon.innerText = '⚠️';
+    if (title) title.innerText = 'অসংরক্ষিত তথ্য রয়েছে';
+    if (msg) msg.innerText = 'আপনার পরিবর্তনগুলো সংরক্ষণ করা হয়নি। আপনি কি পরিবর্তনগুলো বাদ দিতে চান?';
+    if (actionBtn) {
+      actionBtn.style.background = 'var(--primary)';
+      actionBtn.innerText = 'হ্যাঁ, বাদ দিন';
+      actionBtn.onclick = () => {
+        this.closeConfirm();
+        if (onConfirm) onConfirm();
+      };
+    }
+    if (cancelBtn) {
+      cancelBtn.onclick = () => {
+        this.closeConfirm();
+      };
+    }
+    modal.classList.remove('hidden');
+  },
+
   executePendingAction() {
     if (this.pendingAction === 'reset_data') {
       localStorage.clear();
+      sessionStorage.clear();
       location.reload();
     } else if (this.pendingAction === 'reset_settings') {
-      localStorage.removeItem('fz_settings');
-      location.reload();
+      STATE.settings = this.validateSettings({});
+      this.saveData('fz_settings', STATE.settings);
+      this.applyAppearance();
+      this.renderSettings();
+      this.showToast('✅ সেটিংস ডিফল্ট করা হয়েছে');
     } else if (this.pendingAction === 'remove_pin_init') {
       this.showLockScreen('remove_verify');
     } else if (this.pendingAction === 'restore_backup' && this.pendingImportPayload) {
       const payload = this.pendingImportPayload;
-      if (payload.profile) this.saveData('fz_profile', payload.profile);
-      if (Array.isArray(payload.periods)) this.saveData('fz_periods', payload.periods);
-      if (payload.logs && typeof payload.logs === 'object') this.saveData('fz_logs', payload.logs);
-      if (payload.settings && typeof payload.settings === 'object') this.saveData('fz_settings', payload.settings);
-      if (payload.streak) this.saveData('fz_streak', payload.streak);
-      if (payload.bookmarks) this.saveData('fz_bookmarks', payload.bookmarks);
+      if (payload.profile) {
+        STATE.profile = this.validate('profile', payload.profile);
+        this.saveData('fz_profile', STATE.profile);
+      }
+      if (Array.isArray(payload.periods)) {
+        STATE.periods = this.validate('periods', payload.periods);
+        this.saveData('fz_periods', STATE.periods);
+      }
+      if (payload.logs && typeof payload.logs === 'object') {
+        STATE.logs = this.validate('logs', payload.logs);
+        this.saveData('fz_logs', STATE.logs);
+      }
+      if (payload.settings && typeof payload.settings === 'object') {
+        STATE.settings = this.validate('settings', payload.settings);
+        this.saveData('fz_settings', STATE.settings);
+      }
+      if (payload.streak) {
+        STATE.streak = this.validate('streak', payload.streak);
+        this.saveData('fz_streak', STATE.streak);
+      }
+      if (payload.bookmarks && typeof payload.bookmarks === 'object') {
+        STATE.bookmarks = payload.bookmarks;
+        this.saveData('fz_bookmarks', STATE.bookmarks);
+      }
       this.saveData('fz_backup_meta', { lastRestoredAt: new Date().toISOString() });
+      this.calculatePredictions();
+      this.applyAppearance();
+      this.renderSettings();
       this.showToast('✅ ব্যাকআপ সফলভাবে রিস্টোর হয়েছে');
-      setTimeout(() => location.reload(), 800);
+      setTimeout(() => location.reload(), 600);
     }
   },
 
@@ -586,6 +679,7 @@ const app = {
   setDisplayMode(mode) {
     if (!STATE.settings) STATE.settings = {};
     STATE.settings.displayMode = mode;
+    STATE.settings = this.validate('settings', STATE.settings);
     this.saveData('fz_settings', STATE.settings);
     this.applyAppearance();
     this.renderSettings();
@@ -595,6 +689,7 @@ const app = {
     if (!STATE.settings) STATE.settings = {};
     STATE.settings.colorTheme = theme;
     STATE.settings.theme = theme;
+    STATE.settings = this.validate('settings', STATE.settings);
     this.saveData('fz_settings', STATE.settings);
     this.applyAppearance();
     this.renderSettings();
@@ -1236,6 +1331,10 @@ const app = {
     if (!STATE.profile || !STATE.profile.setupDone) {
       document.getElementById('view-onboarding').classList.remove('hidden');
       document.getElementById('main-app').classList.add('hidden');
+      const dateInput = document.getElementById('ob-setup-last-period');
+      if (dateInput) {
+        dateInput.max = getLocalDateString(new Date());
+      }
     } else {
       document.getElementById('view-onboarding').classList.add('hidden');
       document.getElementById('main-app').classList.remove('hidden');
@@ -1246,6 +1345,21 @@ const app = {
   },
 
   switchTab(tabName) {
+    if (this.isLogDirty && this.activeTab === 'log' && tabName !== 'log') {
+      this.confirmDiscardUnsaved(() => {
+        this.isLogDirty = false;
+        this._doSwitchTab(tabName);
+      });
+      return;
+    }
+    if (this.activeTab === 'settings' && tabName !== 'settings') {
+      this.flushSettingsIfDirty();
+    }
+    this._doSwitchTab(tabName);
+  },
+
+  _doSwitchTab(tabName) {
+    this.activeTab = tabName;
     document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
     const activeView = document.getElementById(`view-${tabName}`);
     if (activeView) {
@@ -1269,8 +1383,10 @@ const app = {
   },
 
   // ==========================================
-  // 5. ONBOARDING
+  // 5. ONBOARDING (CANONICAL)
   // ==========================================
+  _isSavingOnboarding: false,
+
   nextOnboardingSlide(slideNum) {
     const slider = document.getElementById('onboarding-slider');
     if (!slider) return;
@@ -1280,6 +1396,13 @@ const app = {
         dot.classList.toggle('active', idx === (slideNum - 1));
       });
     });
+
+    if (slideNum === 2) {
+      const dateInput = document.getElementById('ob-setup-last-period');
+      if (dateInput && !dateInput.max) {
+        dateInput.max = getLocalDateString(new Date());
+      }
+    }
 
     if (slideNum === 3) {
       setTimeout(() => {
@@ -1293,31 +1416,122 @@ const app = {
     }
   },
 
+  toggleCycleUnknown(isUnknown) {
+    const slider = document.getElementById('ob-setup-cycle');
+    const pill = document.getElementById('ob-cycle-val');
+    if (slider) {
+      slider.disabled = Boolean(isUnknown);
+      slider.style.opacity = isUnknown ? '0.45' : '1';
+      slider.style.pointerEvents = isUnknown ? 'none' : 'auto';
+    }
+    if (pill) {
+      if (isUnknown) {
+        pill.innerText = 'জানি না (ডিফল্ট ২৮ দিন)';
+      } else {
+        const val = slider ? slider.value : 28;
+        pill.innerText = toBanglaNumber(val) + ' দিন';
+      }
+    }
+  },
+
+  togglePeriodUnknown(isUnknown) {
+    const slider = document.getElementById('ob-setup-period');
+    const pill = document.getElementById('ob-period-val');
+    if (slider) {
+      slider.disabled = Boolean(isUnknown);
+      slider.style.opacity = isUnknown ? '0.45' : '1';
+      slider.style.pointerEvents = isUnknown ? 'none' : 'auto';
+    }
+    if (pill) {
+      if (isUnknown) {
+        pill.innerText = 'জানি না (ডিফল্ট ৫ দিন)';
+      } else {
+        const val = slider ? slider.value : 5;
+        pill.innerText = toBanglaNumber(val) + ' দিন';
+      }
+    }
+  },
+
+  onCycleSliderChange(val) {
+    const isUnknown = document.getElementById('ob-cycle-unknown')?.checked;
+    if (isUnknown) return;
+    const pill = document.getElementById('ob-cycle-val');
+    if (pill) {
+      pill.innerText = toBanglaNumber(val) + ' দিন';
+    }
+  },
+
+  onPeriodSliderChange(val) {
+    const isUnknown = document.getElementById('ob-period-unknown')?.checked;
+    if (isUnknown) return;
+    const pill = document.getElementById('ob-period-val');
+    if (pill) {
+      pill.innerText = toBanglaNumber(val) + ' দিন';
+    }
+  },
+
   validateAndNextSlide(slideNum) {
     if (slideNum === 3) {
-      const age = document.getElementById('ob-setup-age')?.value;
-      const lastP = document.getElementById('ob-setup-last-period')?.value;
       const name = document.getElementById('ob-setup-name')?.value;
+      const ageStr = document.getElementById('ob-setup-age')?.value;
+      const lastP = document.getElementById('ob-setup-last-period')?.value;
       let valid = true;
 
-      if (name && name.length > 20) {
-        document.getElementById('ob-name-err').style.display = 'block';
+      // Name is optional. Max length check (30)
+      const nameErr = document.getElementById('ob-name-err');
+      if (name && name.trim().length > 30) {
+        if (nameErr) {
+          nameErr.innerText = 'নাম ৩০ অক্ষরের মধ্যে লিখো';
+          nameErr.style.display = 'block';
+        }
         valid = false;
+      } else if (nameErr) {
+        nameErr.style.display = 'none';
       }
-      if (!age || age < 10 || age > 60) {
-        document.getElementById('ob-age-err').style.display = 'block';
-        valid = false;
+
+      // Age is optional. If provided, validate reasonable whole number 10-65
+      const ageErr = document.getElementById('ob-age-err');
+      if (ageStr && ageStr.trim() !== '') {
+        const ageNum = parseInt(ageStr, 10);
+        if (isNaN(ageNum) || ageNum < 10 || ageNum > 65) {
+          if (ageErr) {
+            ageErr.innerText = 'বয়সটা ঠিকভাবে লিখো।';
+            ageErr.style.display = 'block';
+          }
+          valid = false;
+        } else if (ageErr) {
+          ageErr.style.display = 'none';
+        }
+      } else if (ageErr) {
+        ageErr.style.display = 'none';
       }
+
+      // Last period date is required. Must not be future date.
+      const dateErr = document.getElementById('ob-date-err');
       if (!lastP) {
-        document.getElementById('ob-date-err').style.display = 'block';
+        if (dateErr) {
+          dateErr.innerText = 'তারিখটা ঠিক করে দাও।';
+          dateErr.style.display = 'block';
+        }
         valid = false;
       } else {
         const selectedDate = new Date(lastP);
         const today = new Date();
         today.setHours(23, 59, 59, 999);
-        if (selectedDate > today) {
-          document.getElementById('ob-date-err').style.display = 'block';
+        if (isNaN(selectedDate.getTime())) {
+          if (dateErr) {
+            dateErr.innerText = 'তারিখটা ঠিক করে দাও।';
+            dateErr.style.display = 'block';
+          }
           valid = false;
+        } else if (selectedDate > today) {
+          if (dateErr) {
+            dateErr.innerText = 'ভবিষ্যতের তারিখ দেওয়া যাবে না।';
+            dateErr.style.display = 'block';
+          }
+          valid = false;
+        } else if (dateErr) {
+          dateErr.style.display = 'none';
         }
       }
 
@@ -1329,51 +1543,89 @@ const app = {
     this.nextOnboardingSlide(slideNum);
   },
 
-  finishOnboardingSafe() {
-    const name = document.getElementById('ob-setup-name')?.value || '';
-    const ageVal = document.getElementById('ob-setup-age')?.value;
-    const ageNum = parseInt(ageVal, 10);
-    const age = !isNaN(ageNum) && ageNum >= 10 && ageNum <= 65 ? ageNum : null;
-    const lastP = document.getElementById('ob-setup-last-period')?.value;
-    const cycle = parseInt(document.getElementById('ob-setup-cycle')?.value, 10) || 28;
-    const period = parseInt(document.getElementById('ob-setup-period')?.value, 10) || 5;
+  finishOnboarding() {
+    if (this._isSavingOnboarding) return;
+    this._isSavingOnboarding = true;
 
-    const start = new Date(lastP);
-    const end = new Date(start);
-    end.setDate(end.getDate() + period - 1);
-    const startDateStr = getLocalDateString(start);
-    const endDateStr = getLocalDateString(end);
+    try {
+      const name = document.getElementById('ob-setup-name')?.value || '';
+      const ageVal = document.getElementById('ob-setup-age')?.value;
+      const ageNum = parseInt(ageVal, 10);
+      const age = !isNaN(ageNum) && ageNum >= 10 && ageNum <= 65 ? ageNum : null;
+      const lastP = document.getElementById('ob-setup-last-period')?.value;
 
-    STATE.profile = this.validate('profile', {
-      name: name.trim(),
-      age: age,
-      lastPeriodStart: startDateStr,
-      cycleLength: cycle,
-      periodLength: period,
-      setupDone: true
-    });
+      const isCycleUnknown = Boolean(document.getElementById('ob-cycle-unknown')?.checked);
+      const isPeriodUnknown = Boolean(document.getElementById('ob-period-unknown')?.checked);
 
-    STATE.periods = this.validate('periods', [{
-      startDate: startDateStr,
-      endDate: endDateStr,
-      flow: 'মাঝারি'
-    }]);
+      const cycleSlider = document.getElementById('ob-setup-cycle');
+      const periodSlider = document.getElementById('ob-setup-period');
 
-    this.saveData('fz_profile', STATE.profile);
-    this.saveData('fz_periods', STATE.periods);
-    this.saveData('fz_logs', STATE.logs || {});
-    this.saveData('fz_settings', STATE.settings);
+      const cycle = isCycleUnknown ? 28 : (parseInt(cycleSlider?.value, 10) || 28);
+      const period = isPeriodUnknown ? 5 : (parseInt(periodSlider?.value, 10) || 5);
 
-    document.getElementById('view-onboarding').classList.add('hidden');
-    document.getElementById('main-app').classList.remove('hidden');
+      if (!lastP) {
+        this._isSavingOnboarding = false;
+        this.nextOnboardingSlide(2);
+        this.showToast('তারিখটা ঠিক করে দাও।');
+        return;
+      }
 
-    this.renderHome();
-    this.renderSettings();
-    this.safeVibrate(50);
+      const start = new Date(lastP);
+      if (isNaN(start.getTime())) {
+        this._isSavingOnboarding = false;
+        this.nextOnboardingSlide(2);
+        this.showToast('তারিখটা ঠিক করে দাও।');
+        return;
+      }
+
+      const end = new Date(start);
+      end.setDate(end.getDate() + period - 1);
+      const startDateStr = getLocalDateString(start);
+      const endDateStr = getLocalDateString(end);
+
+      STATE.profile = this.validate('profile', {
+        name: name.trim(),
+        age: age,
+        lastPeriodStart: startDateStr,
+        cycleLength: cycle,
+        periodLength: period,
+        isCycleUnknown,
+        isPeriodUnknown,
+        setupDone: true
+      });
+
+      STATE.periods = this.validate('periods', [{
+        startDate: startDateStr,
+        endDate: endDateStr,
+        flow: 'মাঝারি'
+      }]);
+
+      if (!STATE.settings) {
+        STATE.settings = this.validateSettings({});
+      }
+
+      this.saveData('fz_profile', STATE.profile);
+      this.saveData('fz_periods', STATE.periods);
+      this.saveData('fz_logs', STATE.logs || {});
+      this.saveData('fz_settings', STATE.settings);
+
+      document.getElementById('view-onboarding').classList.add('hidden');
+      document.getElementById('main-app').classList.remove('hidden');
+
+      this.calculatePredictions();
+      this.renderHome();
+      this.renderSettings();
+      this.safeVibrate(50);
+    } catch (err) {
+      console.error('Error finishing onboarding:', err);
+      this.showToast('⚠️ অনবোর্ডিং সংরক্ষণে সমস্যা হয়েছে');
+    } finally {
+      this._isSavingOnboarding = false;
+    }
   },
 
-  finishOnboarding() {
-    this.finishOnboardingSafe();
+  finishOnboardingSafe() {
+    this.finishOnboarding();
   },
 
   // ==========================================
@@ -1943,105 +2195,368 @@ const app = {
     this.loadLogForDate();
   },
 
+  onLogDateChange() {
+    const dateInput = document.getElementById('log-date');
+    if (!dateInput) return;
+    const newDate = dateInput.value;
+    if (!newDate) return;
+
+    if (this.isLogDirty) {
+      this.confirmDiscardUnsaved(() => {
+        this.isLogDirty = false;
+        this.isEditingNotes = false;
+        this._currentLogDate = newDate;
+        this.loadLogForDate();
+      });
+      const cancelBtn = document.getElementById('confirm-cancel-btn');
+      if (cancelBtn) {
+        cancelBtn.onclick = () => {
+          if (dateInput && this._currentLogDate) {
+            dateInput.value = this._currentLogDate;
+          }
+          this.closeConfirm();
+        };
+      }
+    } else {
+      this._currentLogDate = newDate;
+      this.loadLogForDate();
+    }
+  },
+
   loadLogForDate() {
     const dateInput = document.getElementById('log-date');
-    const dStr = dateInput ? dateInput.value || getLocalDateString(new Date()) : getLocalDateString(new Date());
+    const dStr = dateInput ? (dateInput.value || getLocalDateString(new Date())) : getLocalDateString(new Date());
     if (dateInput && !dateInput.value) dateInput.value = dStr;
+    this._currentLogDate = dStr;
+    this.isLogDirty = false;
+    this.isEditingNotes = false;
 
-    document.querySelectorAll('.chip-group .chip-item').forEach(c => c.classList.remove('active'));
+    // Reset all chip groups
+    document.querySelectorAll('#period-start-chips .chip-item, #period-end-chips .chip-item, #flow-chips .chip-item, #symptom-chips .chip-item, #mood-chips .chip-item, #sleep-chips .chip-item').forEach(c => c.classList.remove('active'));
+
+    const flowSection = document.getElementById('flow-section');
+    if (flowSection) flowSection.style.display = 'none';
+
     const energyInput = document.getElementById('log-energy');
-    const energyVal = document.getElementById('energy-val');
-    if (energyInput) energyInput.value = 50;
-    if (energyVal) energyVal.innerText = `${toBanglaNumber(50)}%`;
+    if (energyInput) energyInput.value = 5;
+    this.updateEnergyDisplay(5, false);
+
+    const sleepHoursInput = document.getElementById('log-sleep-hours');
+    if (sleepHoursInput) sleepHoursInput.value = 7.5;
+    this.updateSleepHoursDisplay(7.5, false);
 
     const notesInput = document.getElementById('log-notes');
     if (notesInput) notesInput.value = '';
 
-    if (STATE.logs && STATE.logs[dStr]) {
-      const log = STATE.logs[dStr];
-      if (log.symptoms && Array.isArray(log.symptoms)) {
-        document.querySelectorAll('#symptom-chips .chip-item').forEach(c => {
-          if (log.symptoms.includes(c.textContent.trim())) c.classList.add('active');
-        });
-      }
-      if (log.mood) {
-        document.querySelectorAll('#mood-chips .chip-item').forEach(c => {
-          if (c.textContent.trim() === log.mood) c.classList.add('active');
-        });
-      }
-      if (log.flow) {
-        document.querySelectorAll('#flow-chips .chip-item').forEach(c => {
-          if (c.textContent.trim() === log.flow) c.classList.add('active');
-        });
-      }
-      if (log.sleep) {
-        document.querySelectorAll('#sleep-chips .chip-item').forEach(c => {
-          if (c.textContent.trim() === log.sleep) c.classList.add('active');
-        });
-      }
-      if (log.energy !== undefined) {
-        const val = parseInt(log.energy, 10) || 50;
-        if (energyInput) energyInput.value = val;
-        if (energyVal) energyVal.innerText = `${toBanglaNumber(val)}%`;
-      }
-      if (log.notes && notesInput) {
-        notesInput.value = log.notes;
-      }
+    // Check existing records in STATE
+    const log = STATE.logs ? STATE.logs[dStr] : null;
+    const periods = STATE.periods || [];
+    const isPeriodStartInPeriods = periods.some(p => (p.startDate || p.start) === dStr);
+    const isPeriodEndInPeriods = periods.some(p => (p.endDate || p.end) === dStr);
+    const activePeriodInDate = periods.find(p => dStr >= (p.startDate || p.start) && dStr <= (p.endDate || p.end));
+
+    // 1. Period Start status
+    let isStart = false;
+    if (log && typeof log.periodStarted === 'boolean') {
+      isStart = log.periodStarted;
+    } else if (log && log.flow) {
+      isStart = true;
+    } else if (!log && (activePeriodInDate || isPeriodStartInPeriods)) {
+      isStart = true;
     }
+
+    const startChips = document.querySelectorAll('#period-start-chips .chip-item');
+    startChips.forEach(c => {
+      const txt = c.textContent.trim();
+      if (isStart && txt === 'হ্যাঁ') c.classList.add('active');
+      else if (!isStart && log && log.periodStarted === false && txt === 'না') c.classList.add('active');
+    });
+
+    if (isStart && flowSection) {
+      flowSection.style.display = 'block';
+    }
+
+    // 2. Flow status
+    const flowVal = log?.flow || (activePeriodInDate ? activePeriodInDate.flow : '');
+    if (flowVal) {
+      if (flowSection) flowSection.style.display = 'block';
+      document.querySelectorAll('#flow-chips .chip-item').forEach(c => {
+        const text = c.textContent.trim();
+        if (text.includes(flowVal) || flowVal.includes(text.replace(/[^\u0980-\u09FF]/g, '').trim())) {
+          c.classList.add('active');
+        }
+      });
+    }
+
+    // 3. Period End status
+    let isEnd = false;
+    if (log && typeof log.periodEnded === 'boolean') {
+      isEnd = log.periodEnded;
+    } else if (!log && isPeriodEndInPeriods) {
+      isEnd = true;
+    }
+
+    const endChips = document.querySelectorAll('#period-end-chips .chip-item');
+    endChips.forEach(c => {
+      const txt = c.textContent.trim();
+      if (isEnd && txt === 'হ্যাঁ') c.classList.add('active');
+      else if (!isEnd && log && log.periodEnded === false && txt === 'না') c.classList.add('active');
+    });
+
+    // 4. Symptoms
+    if (log && log.symptoms && Array.isArray(log.symptoms)) {
+      document.querySelectorAll('#symptom-chips .chip-item').forEach(c => {
+        const text = c.textContent.trim();
+        const clean = text.replace(/[^\u0980-\u09FF\s]/g, '').trim();
+        if (log.symptoms.some(s => s.trim() === text || s.trim() === clean || text.includes(s.trim()))) {
+          c.classList.add('active');
+        }
+      });
+    }
+
+    // 5. Mood
+    if (log && log.mood) {
+      document.querySelectorAll('#mood-chips .chip-item').forEach(c => {
+        const text = c.textContent.trim();
+        if (text === log.mood || text.includes(log.mood) || log.mood.includes(text)) {
+          c.classList.add('active');
+        }
+      });
+    }
+
+    // 6. Energy (1-10)
+    if (log && log.energy !== undefined) {
+      let val = parseInt(log.energy, 10);
+      if (val > 10) val = Math.min(10, Math.max(1, Math.round(val / 10)));
+      else val = Math.min(10, Math.max(1, val || 5));
+      if (energyInput) energyInput.value = val;
+      this.updateEnergyDisplay(val, false);
+    }
+
+    // 7. Sleep Hours
+    if (log && log.sleepHours !== undefined) {
+      let sHours = parseFloat(log.sleepHours);
+      if (isNaN(sHours) || sHours < 1 || sHours > 24) sHours = 7.5;
+      if (sleepHoursInput) sleepHoursInput.value = sHours;
+      this.updateSleepHoursDisplay(sHours, false);
+    }
+
+    // 8. Sleep Quality
+    const sleepQuality = log ? (log.sleepQuality || log.sleep) : '';
+    if (sleepQuality) {
+      document.querySelectorAll('#sleep-chips .chip-item').forEach(c => {
+        const text = c.textContent.trim();
+        if (text === sleepQuality || text.includes(sleepQuality) || sleepQuality.includes(text)) {
+          c.classList.add('active');
+        }
+      });
+    }
+
+    // 9. Notes
+    if (log && log.notes && notesInput) {
+      notesInput.value = log.notes;
+    }
+
+    this.isLogDirty = false;
+    this.isEditingNotes = false;
+  },
+
+  setPeriodStart(isStart) {
+    const chips = document.querySelectorAll('#period-start-chips .chip-item');
+    const yesChip = Array.from(chips).find(c => c.textContent.trim() === 'হ্যাঁ');
+    const noChip = Array.from(chips).find(c => c.textContent.trim() === 'না');
+    const target = isStart ? yesChip : noChip;
+    const wasActive = target ? target.classList.contains('active') : false;
+
+    chips.forEach(c => c.classList.remove('active'));
+    const flowSection = document.getElementById('flow-section');
+
+    if (!wasActive && target) {
+      target.classList.add('active');
+      if (isStart) {
+        if (flowSection) flowSection.style.display = 'block';
+        const activeFlow = document.querySelector('#flow-chips .chip-item.active');
+        if (!activeFlow) {
+          const defaultFlow = Array.from(document.querySelectorAll('#flow-chips .chip-item')).find(c => c.textContent.includes('মাঝারি'));
+          if (defaultFlow) defaultFlow.classList.add('active');
+        }
+      } else {
+        if (flowSection) flowSection.style.display = 'none';
+        document.querySelectorAll('#flow-chips .chip-item').forEach(c => c.classList.remove('active'));
+      }
+    } else {
+      if (flowSection) flowSection.style.display = 'none';
+      document.querySelectorAll('#flow-chips .chip-item').forEach(c => c.classList.remove('active'));
+    }
+
+    this.markLogDirty();
+    this.safeVibrate(20);
+  },
+
+  setPeriodEnd(isEnd) {
+    const chips = document.querySelectorAll('#period-end-chips .chip-item');
+    const yesChip = Array.from(chips).find(c => c.textContent.trim() === 'হ্যাঁ');
+    const noChip = Array.from(chips).find(c => c.textContent.trim() === 'না');
+    const target = isEnd ? yesChip : noChip;
+    const wasActive = target ? target.classList.contains('active') : false;
+
+    chips.forEach(c => c.classList.remove('active'));
+
+    if (!wasActive && target) {
+      target.classList.add('active');
+    }
+
+    this.markLogDirty();
+    this.safeVibrate(20);
   },
 
   toggleChip(el) {
     el.classList.toggle('active');
+    this.markLogDirty();
     this.safeVibrate(20);
   },
 
   toggleSingleChip(el, parentId) {
     const container = document.getElementById(parentId);
     if (!container) return;
-    const isAct = el.classList.contains('active');
+    const wasActive = el.classList.contains('active');
     container.querySelectorAll('.chip-item').forEach(c => c.classList.remove('active'));
-    if (!isAct) el.classList.add('active');
+
+    if (!wasActive) {
+      el.classList.add('active');
+      if (parentId === 'flow-chips') {
+        const startChips = document.querySelectorAll('#period-start-chips .chip-item');
+        startChips.forEach(c => {
+          if (c.textContent.trim() === 'হ্যাঁ') c.classList.add('active');
+          else c.classList.remove('active');
+        });
+        const flowSection = document.getElementById('flow-section');
+        if (flowSection) flowSection.style.display = 'block';
+      }
+    }
+    this.markLogDirty();
     this.safeVibrate(20);
+  },
+
+  toggleSymptomChip(el) {
+    const txt = el.textContent.trim();
+    const isNone = txt.includes('কোনো সমস্যা নেই');
+    const wasActive = el.classList.contains('active');
+
+    if (isNone) {
+      if (!wasActive) {
+        document.querySelectorAll('#symptom-chips .chip-item').forEach(c => c.classList.remove('active'));
+        el.classList.add('active');
+      } else {
+        el.classList.remove('active');
+      }
+    } else {
+      document.querySelectorAll('#symptom-chips .chip-item').forEach(c => {
+        if (c.textContent.trim().includes('কোনো সমস্যা নেই')) c.classList.remove('active');
+      });
+      el.classList.toggle('active');
+    }
+
+    this.markLogDirty();
+    this.safeVibrate(20);
+  },
+
+  updateEnergyDisplay(val, markDirty = true) {
+    const energyVal = document.getElementById('energy-val');
+    if (energyVal) {
+      energyVal.innerText = `শক্তি: ${toBanglaNumber(val)}/১০`;
+    }
+    if (markDirty) this.markLogDirty();
+  },
+
+  updateSleepHoursDisplay(val, markDirty = true) {
+    const sleepVal = document.getElementById('sleep-hours-val');
+    if (sleepVal) {
+      const num = parseFloat(val);
+      const str = (num % 1 === 0) ? String(parseInt(num, 10)) : num.toFixed(1);
+      sleepVal.innerText = `${toBanglaNumber(str)} ঘণ্টা`;
+    }
+    if (markDirty) this.markLogDirty();
+  },
+
+  markLogDirty() {
+    this.isLogDirty = true;
+    this.isEditingNotes = true;
   },
 
   saveLog() {
     const dateInput = document.getElementById('log-date');
-    const dStr = dateInput ? dateInput.value || getLocalDateString(new Date()) : getLocalDateString(new Date());
-    const notes = document.getElementById('log-notes')?.value || '';
-    const energyVal = document.getElementById('log-energy')?.value || '50';
+    const dStr = dateInput ? (dateInput.value || getLocalDateString(new Date())) : getLocalDateString(new Date());
+
+    const startActive = document.querySelector('#period-start-chips .chip-item.active');
+    let periodStarted = false;
+    if (startActive) {
+      periodStarted = startActive.textContent.trim() === 'হ্যাঁ';
+    }
+
+    const endActive = document.querySelector('#period-end-chips .chip-item.active');
+    let periodEnded = false;
+    if (endActive) {
+      periodEnded = endActive.textContent.trim() === 'হ্যাঁ';
+    }
+
+    const flowEl = document.querySelector('#flow-chips .chip-item.active');
+    let flow = '';
+    if (flowEl) {
+      const raw = flowEl.textContent.trim();
+      if (raw.includes('হালকা')) flow = 'হালকা';
+      else if (raw.includes('মাঝারি')) flow = 'মাঝারি';
+      else if (raw.includes('ভারী')) flow = 'ভারী';
+      else if (raw.includes('স্পটিং')) flow = 'স্পটিং';
+      else flow = raw;
+    }
+
+    if (periodStarted && !flow) {
+      flow = 'মাঝারি';
+    }
+    if (flow) {
+      periodStarted = true;
+    }
 
     const symptoms = [];
-    document.querySelectorAll('#symptom-chips .chip-item.active').forEach(c => symptoms.push(c.textContent.trim()));
+    document.querySelectorAll('#symptom-chips .chip-item.active').forEach(c => {
+      symptoms.push(c.textContent.trim());
+    });
 
     const moodEl = document.querySelector('#mood-chips .chip-item.active');
     const mood = moodEl ? moodEl.textContent.trim() : '';
 
-    const flowEl = document.querySelector('#flow-chips .chip-item.active');
-    const flow = flowEl ? flowEl.textContent.trim() : '';
+    const energyInput = document.getElementById('log-energy');
+    const energyVal = energyInput ? parseInt(energyInput.value, 10) : 5;
+
+    const sleepHoursInput = document.getElementById('log-sleep-hours');
+    const sleepHours = sleepHoursInput ? parseFloat(sleepHoursInput.value) : 7.5;
 
     const sleepEl = document.querySelector('#sleep-chips .chip-item.active');
-    const sleep = sleepEl ? sleepEl.textContent.trim() : '';
+    const sleepQuality = sleepEl ? sleepEl.textContent.trim() : '';
+
+    const notes = document.getElementById('log-notes')?.value || '';
 
     const validatedLog = this.validate('dailyLog', {
       date: dStr,
-      periodStarted: Boolean(flow),
-      periodEnded: false,
+      periodStarted,
+      periodEnded,
       flow,
       symptoms,
       mood,
-      sleepQuality: sleep,
-      sleep,
-      energy: parseInt(energyVal, 10),
+      energy: energyVal,
+      sleepHours,
+      sleepQuality,
+      sleep: sleepQuality,
       notes
     }, dStr);
 
     if (!STATE.logs) STATE.logs = {};
-    // Duplicate log prevention: update existing record in place
     STATE.logs[dStr] = validatedLog;
     this.saveData('fz_logs', STATE.logs);
 
-    // If flow was selected, automatically update period records
-    if (flow) {
+    // Period synchronization with canonical STATE.periods
+    if (periodStarted || flow) {
       if (!STATE.periods) STATE.periods = [];
       const alreadyIn = STATE.periods.some(p => dStr >= (p.startDate || p.start) && dStr <= (p.endDate || p.end));
       if (!alreadyIn) {
@@ -2056,13 +2571,13 @@ const app = {
           if (diffEnd >= 1 && diffEnd <= 2) {
             p.endDate = dStr;
             p.end = dStr;
-            p.flow = flow || p.flow;
+            if (flow) p.flow = flow;
             extended = true;
             break;
           } else if (diffStart >= 1 && diffStart <= 2) {
             p.startDate = dStr;
             p.start = dStr;
-            p.flow = flow || p.flow;
+            if (flow) p.flow = flow;
             extended = true;
             break;
           }
@@ -2078,20 +2593,51 @@ const app = {
         }
         STATE.periods = this.validate('periods', STATE.periods);
         this.saveData('fz_periods', STATE.periods);
+      } else {
+        const existingP = STATE.periods.find(p => dStr >= (p.startDate || p.start) && dStr <= (p.endDate || p.end));
+        if (existingP && flow) {
+          existingP.flow = flow;
+          this.saveData('fz_periods', STATE.periods);
+        }
+      }
+    }
+
+    if (periodEnded && STATE.periods) {
+      const pToClose = STATE.periods.find(p => dStr >= (p.startDate || p.start) && dStr <= (p.endDate || p.end));
+      if (pToClose) {
+        pToClose.endDate = dStr;
+        pToClose.end = dStr;
+        this.saveData('fz_periods', STATE.periods);
+      }
+    }
+
+    if (startActive && startActive.textContent.trim() === 'না' && !flow && STATE.periods) {
+      const idx = STATE.periods.findIndex(p => (p.startDate || p.start) === dStr && (p.endDate || p.end) === dStr);
+      if (idx !== -1) {
+        STATE.periods.splice(idx, 1);
+        this.saveData('fz_periods', STATE.periods);
       }
     }
 
     this.calculatePredictions();
     this.updateStreak();
+    this.isLogDirty = false;
     this.isEditingNotes = false;
-    this.showToast('✅ তথ্য সফলভাবে সংরক্ষিত হয়েছে!');
-    this.safeVibrate(50);
 
     const btn = document.getElementById('save-log-btn');
     if (btn) {
       btn.style.transform = 'scale(0.96)';
       setTimeout(() => { btn.style.transform = 'scale(1)'; }, 200);
     }
+
+    const todayStr = getLocalDateString(new Date());
+    if (dStr === todayStr) {
+      const quickLogText = document.getElementById('quick-log-text');
+      if (quickLogText) quickLogText.innerText = 'আজকের লগ সম্পন্ন হয়েছে ✓';
+    }
+
+    this.showToast('✅ তথ্য সফলভাবে সংরক্ষিত হয়েছে!');
+    this.safeVibrate(50);
   },
 
   // ==========================================
@@ -2099,17 +2645,65 @@ const app = {
   // ==========================================
   destroyChart(id) {
     if (this.charts[id]) {
-      this.charts[id].destroy();
+      try {
+        this.charts[id].destroy();
+      } catch (e) {
+        console.warn('Chart destroy error:', id, e);
+      }
       this.charts[id] = null;
     }
   },
 
   safeCreateChart(id, ctx, config) {
+    this.destroyChart(id);
+    if (typeof Chart === 'undefined') {
+      const container = ctx?.canvas?.parentElement;
+      if (container) {
+        container.innerHTML = '<p class="text-muted text-sm text-center py-4">📊 এই চার্টটা এখন দেখানো যাচ্ছে না।</p>';
+      }
+      return;
+    }
     try {
       this.charts[id] = new Chart(ctx, config);
     } catch (e) {
       console.warn('Chart render error:', id, e);
+      const container = ctx?.canvas?.parentElement;
+      if (container) {
+        container.innerHTML = '<p class="text-muted text-sm text-center py-4">📊 এই চার্টটা এখন দেখানো যাচ্ছে না।</p>';
+      }
     }
+  },
+
+  calculatePhaseForDate(dateStr) {
+    const d = parseLocalDate(dateStr);
+    if (!d) return null;
+    const periods = STATE.periods || [];
+    const pLen = STATE.profile?.periodLength || 5;
+    const cLen = STATE.profile?.cycleLength || 28;
+
+    for (const p of periods) {
+      const s = parseLocalDate(p.startDate || p.start);
+      const e = parseLocalDate(p.endDate || p.end) || addDays(s, pLen - 1);
+      if (s && e && d >= s && d <= e) return "মাসিকের সময়";
+    }
+
+    const priorPeriod = [...periods]
+      .filter(p => {
+        const s = parseLocalDate(p.startDate || p.start);
+        return s && s <= d;
+      })
+      .sort((a, b) => new Date(b.startDate || b.start) - new Date(a.startDate || a.start))[0];
+
+    if (!priorPeriod) return null;
+
+    const s = parseLocalDate(priorPeriod.startDate || priorPeriod.start);
+    const dayInCycle = diffInDays(d, s) + 1;
+    const ovulDay = Math.max(10, cLen - 14);
+
+    if (dayInCycle <= pLen) return "মাসিকের সময়";
+    if (dayInCycle >= ovulDay - 1 && dayInCycle <= ovulDay + 1) return "ডিম্বস্ফোটনের সময়";
+    if (dayInCycle < ovulDay - 1) return "ফলিকুলার পর্যায়";
+    return "লুটিয়াল পর্যায়";
   },
 
   renderAnalytics() {
@@ -2124,40 +2718,61 @@ const app = {
     const periods = [...(STATE.periods || [])].sort((a, b) => new Date(a.startDate || a.start) - new Date(b.startDate || b.start));
     const logs = STATE.logs || {};
 
-    // Predictions
+    // 1. Predictions Card (পরবর্তী সময়ের হিসাব)
+    const predMsg = document.getElementById('pred-unavailable-msg');
+    const predNext = document.getElementById('pred-next-period');
+    const predOvul = document.getElementById('pred-ovulation');
+    const predFw = document.getElementById('pred-fertile-window');
+
     if (p && p.predictionAvailable) {
-      const predNext = document.getElementById('pred-next-period');
       if (predNext) {
         predNext.innerText = `${formatBanglaShortDate(p.nextPeriodStart)}${p.isNextPeriodLogged ? ' (লগকৃত)' : ''}`;
       }
-
-      const predOvul = document.getElementById('pred-ovulation');
       if (predOvul) predOvul.innerText = formatBanglaShortDate(p.ovulationDate);
-
-      const predFw = document.getElementById('pred-fertile-window');
       if (predFw) {
         predFw.innerText = `${formatBanglaShortDate(p.fertileStartDate)} – ${formatBanglaShortDate(p.fertileEndDate)}`;
       }
+      if (predMsg) predMsg.style.display = 'none';
     } else {
-      const predNext = document.getElementById('pred-next-period');
       if (predNext) predNext.innerText = '-';
-      const predOvul = document.getElementById('pred-ovulation');
       if (predOvul) predOvul.innerText = '-';
-      const predFw = document.getElementById('pred-fertile-window');
       if (predFw) predFw.innerText = '-';
+      if (predMsg) predMsg.style.display = 'block';
     }
 
-    // Statistics Grid
-    const cycleLengths = p?.cycleLengths || [];
-    let periodLengths = [];
+    // 2. Statistics Grid (সংক্ষিপ্ত পরিসংখ্যান)
+    const cycleLengths = (p?.cycleLengths || []).filter(v => typeof v === 'number' && !isNaN(v) && v > 0);
+    const validPeriodLengths = [];
     periods.forEach(per => {
-      let pLen = Math.floor((new Date(per.endDate || per.end) - new Date(per.startDate || per.start)) / (1000 * 60 * 60 * 24)) + 1;
-      if (pLen > 0 && pLen <= 15) periodLengths.push(pLen);
+      const s = parseLocalDate(per.startDate || per.start);
+      const e = parseLocalDate(per.endDate || per.end);
+      if (s && e) {
+        const pLen = diffInDays(e, s) + 1;
+        if (pLen >= 2 && pLen <= 12) validPeriodLengths.push(pLen);
+      }
     });
 
-    const totalLogs = Object.keys(logs).length;
-    const totLogsEl = document.getElementById('stat-total-logs');
-    if (totLogsEl) totLogsEl.innerText = toBanglaNumber(totalLogs);
+    const statAvgCycle = document.getElementById('stat-avg-cycle');
+    const statAvgCycleSub = document.getElementById('stat-avg-cycle-sub');
+    if (cycleLengths.length > 0) {
+      const avgCycle = Math.round(cycleLengths.reduce((a, b) => a + b, 0) / cycleLengths.length);
+      if (statAvgCycle) statAvgCycle.innerText = `${toBanglaNumber(avgCycle)} দিন`;
+      if (statAvgCycleSub) statAvgCycleSub.innerText = `গড় সাইকেল: ${toBanglaNumber(avgCycle)} দিন`;
+    } else {
+      if (statAvgCycle) statAvgCycle.innerText = '-';
+      if (statAvgCycleSub) statAvgCycleSub.innerText = 'গড় সাইকেল: -';
+    }
+
+    const statAvgPeriod = document.getElementById('stat-avg-period');
+    const statAvgPeriodSub = document.getElementById('stat-avg-period-sub');
+    if (validPeriodLengths.length > 0) {
+      const avgPeriod = Math.round(validPeriodLengths.reduce((a, b) => a + b, 0) / validPeriodLengths.length);
+      if (statAvgPeriod) statAvgPeriod.innerText = `${toBanglaNumber(avgPeriod)} দিন`;
+      if (statAvgPeriodSub) statAvgPeriodSub.innerText = `গড় পিরিয়ড: ${toBanglaNumber(avgPeriod)} দিন`;
+    } else {
+      if (statAvgPeriod) statAvgPeriod.innerText = '-';
+      if (statAvgPeriodSub) statAvgPeriodSub.innerText = 'গড় পিরিয়ড: -';
+    }
 
     const minCycleEl = document.getElementById('stat-min-cycle');
     if (minCycleEl) {
@@ -2168,16 +2783,20 @@ const app = {
       maxCycleEl.innerText = (p?.cycleVariability?.max > 0) ? `${toBanglaNumber(p.cycleVariability.max)} দিন` : '-';
     }
 
-    // Single Canonical Smart Health Analysis
+    const totalLogs = Object.keys(logs).length;
+    const totLogsEl = document.getElementById('stat-total-logs');
+    if (totLogsEl) totLogsEl.innerText = `${toBanglaNumber(totalLogs)} দিন`;
+
+    // 3. Smart Health Analysis (Canonical Single Section)
     this.renderSmartHealthAnalysis(logs, p);
 
-    // Charts
+    // 4. Charts
     this.renderCycleChart(cycleLengths);
-    this.renderPeriodChart(periodLengths);
+    this.renderPeriodChart(validPeriodLengths);
     this.renderSymptomChart(logs);
     this.renderMoodChart(logs);
 
-    // Mood Timeline (date-by-date emotional history)
+    // 5. Mood Timeline (Date-by-date emotional history)
     this.renderAnalyticsMoodTimeline(logs);
   },
 
@@ -2186,8 +2805,10 @@ const app = {
     if (!container) return;
 
     const cards = [];
+    const logDates = Object.keys(logs || {}).sort().reverse();
+    const deepLogs = logDates.map(d => ({ date: d, data: logs[d] }));
 
-    // 1. Cycle Variability & Irregularity Analysis
+    // F. Cycle Variability & Irregularity Analysis
     if (predictions && predictions.cycleVariability) {
       const v = predictions.cycleVariability;
       if (v.count >= 2) {
@@ -2202,7 +2823,7 @@ const app = {
         cards.push(`
           <div class="card mb-3" style="border-radius: 20px; background: linear-gradient(135deg, color-mix(in srgb, ${statusColor} 8%, transparent), transparent); border: 1px solid color-mix(in srgb, ${statusColor} 25%, transparent);">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
-              <h4 style="font-size: 1.05rem; font-weight: 700; color: var(--text-main); margin: 0;">সাইকেল ভ্যারিয়েবিলিটি বিশ্লেষণ</h4>
+              <h4 style="font-size: 1.05rem; font-weight: 700; color: var(--text-main); margin: 0;">সাইকেল ভ্যারিয়েবিলিটি ও নিয়মিততা</h4>
               <span style="background: ${statusColor}; color: white; padding: 4px 10px; border-radius: 12px; font-size: 0.78rem; font-weight: 600;">${statusBadge}</span>
             </div>
             <p style="font-size: 0.9rem; line-height: 1.5; color: var(--text-main); margin-bottom: 0.75rem;">${predictions.variabilityMessage}</p>
@@ -2221,87 +2842,228 @@ const app = {
       }
     }
 
-    // Deep Analysis of logs (last 90 days)
-    const logDates = Object.keys(logs).sort().reverse().slice(0, 90);
-    const deepLogs = logDates.map(d => ({ date: d, data: logs[d] }));
+    // A. ঘুম বনাম শক্তি (Sleep vs Energy)
+    const sleepEnergyLogs = deepLogs.filter(l => {
+      const { sleep, sleepHours, energy } = l.data;
+      return (sleep || sleepHours !== undefined) && energy !== undefined;
+    });
 
-    if (deepLogs.length >= 3) {
-      // 2. Sleep vs Energy Correlation
-      let lowSleepLowEnergy = 0;
-      let goodSleepGoodEnergy = 0;
-      deepLogs.forEach(l => {
-        const { sleep, energy } = l.data;
-        if (sleep && energy !== undefined) {
-          if (sleep.includes('কম') && energy < 45) lowSleepLowEnergy++;
-          if (sleep.includes('ভালো') && energy > 55) goodSleepGoodEnergy++;
+    if (sleepEnergyLogs.length >= 3) {
+      let lowSleepEnergySum = 0, lowSleepCount = 0;
+      let goodSleepEnergySum = 0, goodSleepCount = 0;
+
+      sleepEnergyLogs.forEach(l => {
+        const { sleep, sleepHours, energy } = l.data;
+        const eVal = energy > 10 ? Math.round(energy / 10) : energy;
+        const isLowSleep = (sleepHours && sleepHours < 7) || (sleep && (sleep.includes('কম') || sleep.includes('খারাপ')));
+        const isGoodSleep = (sleepHours && sleepHours >= 7.5) || (sleep && sleep.includes('ভালো'));
+
+        if (isLowSleep) {
+          lowSleepEnergySum += eVal;
+          lowSleepCount++;
+        }
+        if (isGoodSleep) {
+          goodSleepEnergySum += eVal;
+          goodSleepCount++;
         }
       });
-      if (lowSleepLowEnergy >= 2) {
+
+      if (lowSleepCount >= 2 && (lowSleepEnergySum / lowSleepCount) <= 5) {
+        const avg = Math.round(lowSleepEnergySum / lowSleepCount);
         cards.push(`
           <div class="card mb-3" style="border-radius: 18px; padding: 1rem; border-left: 4px solid var(--primary); background: var(--card);">
             <div style="display: flex; gap: 0.75rem; align-items: flex-start;">
               <span style="font-size: 1.6rem;">😴</span>
               <div>
                 <h4 style="font-size: 0.95rem; font-weight: 600; margin-bottom: 2px;">ঘুম ও শক্তির সম্পর্ক</h4>
-                <p style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.45; margin: 0;">কম ঘুমের দিনে তোমার শারীরিক শক্তি উল্লেখযোগ্যভাবে কমে গেছে। পর্যাপ্ত বিশ্রাম শক্তির মাত্রা ধরে রাখতে সাহায্য করবে।</p>
+                <p style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.45; margin: 0;">ঘুম কম হলে তোমার এনার্জিও কমে যাচ্ছে (গড়ে ${toBanglaNumber(avg)}/১০)। পর্যাপ্ত ৭–৮ ঘণ্টা নির্বিঘ্ন বিশ্রাম শক্তির মাত্রা ধরে রাখতে সাহায্য করবে।</p>
               </div>
             </div>
           </div>
         `);
-      } else if (goodSleepGoodEnergy >= 2) {
+      } else if (goodSleepCount >= 2 && (goodSleepEnergySum / goodSleepCount) >= 6) {
+        const avg = Math.round(goodSleepEnergySum / goodSleepCount);
         cards.push(`
           <div class="card mb-3" style="border-radius: 18px; padding: 1rem; border-left: 4px solid var(--secondary); background: var(--card);">
             <div style="display: flex; gap: 0.75rem; align-items: flex-start;">
               <span style="font-size: 1.6rem;">⚡</span>
               <div>
                 <h4 style="font-size: 0.95rem; font-weight: 600; margin-bottom: 2px;">ভালো ঘুমের সুফল</h4>
-                <p style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.45; margin: 0;">যেদিন ঘুম ভালো হয়েছে, সেদিন এনার্জি লেভেল গড়ে ৬০% এর বেশি ছিল। এই সুন্দর রুটিন ধরে রাখো।</p>
+                <p style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.45; margin: 0;">যেসব দিনে ঘুম ভালো হয়েছে, সেদিন তোমার শক্তির মাত্রা বেশি ছিল (গড়ে ${toBanglaNumber(avg)}/১০)। এই সুন্দর রুটিন ধরে রাখো।</p>
               </div>
             </div>
           </div>
         `);
       }
+    }
 
-      // 3. Sleep vs Mood Correlation
-      let lowSleepBadMood = 0;
-      deepLogs.forEach(l => {
-        const { sleep, mood } = l.data;
-        if (sleep && mood) {
-          if (sleep.includes('কম') && (mood.includes('কষ্টে') || mood.includes('রাগী') || mood.includes('সংবেদনশীল'))) {
-            lowSleepBadMood++;
-          }
+    // B. ঘুম বনাম মেজাজ (Sleep vs Mood)
+    const sleepMoodLogs = deepLogs.filter(l => {
+      const { sleep, sleepHours, mood } = l.data;
+      return (sleep || sleepHours !== undefined) && mood;
+    });
+
+    if (sleepMoodLogs.length >= 3) {
+      let lowSleepNegativeMood = 0;
+      let goodSleepPositiveMood = 0;
+
+      sleepMoodLogs.forEach(l => {
+        const { sleep, sleepHours, mood } = l.data;
+        const isLowSleep = (sleepHours && sleepHours < 7) || (sleep && (sleep.includes('কম') || sleep.includes('খারাপ')));
+        const isGoodSleep = (sleepHours && sleepHours >= 7.5) || (sleep && sleep.includes('ভালো'));
+
+        if (isLowSleep && (mood.includes('কষ্টে') || mood.includes('বিরক্ত') || mood.includes('উদ্বিগ্ন') || mood.includes('হতাশ') || mood.includes('রাগী'))) {
+          lowSleepNegativeMood++;
+        }
+        if (isGoodSleep && (mood.includes('ভালো') || mood.includes('প্রেমময়'))) {
+          goodSleepPositiveMood++;
         }
       });
-      if (lowSleepBadMood >= 2) {
+
+      if (lowSleepNegativeMood >= 2) {
         cards.push(`
           <div class="card mb-3" style="border-radius: 18px; padding: 1rem; border-left: 4px solid var(--accent); background: var(--card);">
             <div style="display: flex; gap: 0.75rem; align-items: flex-start;">
               <span style="font-size: 1.6rem;">🌙</span>
               <div>
                 <h4 style="font-size: 0.95rem; font-weight: 600; margin-bottom: 2px;">ঘুম ও মেজাজের ভারসাম্য</h4>
-                <p style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.45; margin: 0;">ঘুম কম হওয়ার দিনে বিরক্তি বা সংবেদনশীলতা বেশি দেখা গেছে। অন্তত ৭-৮ ঘণ্টা নির্বিঘ্ন ঘুম মেজাজ নিয়ন্ত্রণে সহায়ক।</p>
+                <p style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.45; margin: 0;">ঘুম কম হওয়ার দিনে মেজাজে বিরক্তি বা সংবেদনশীলতা বেশি দেখা গেছে। নিয়মিত পর্যাপ্ত বিশ্রাম মেজাজ নিয়ন্ত্রণে সহায়ক।</p>
+              </div>
+            </div>
+          </div>
+        `);
+      } else if (goodSleepPositiveMood >= 2) {
+        cards.push(`
+          <div class="card mb-3" style="border-radius: 18px; padding: 1rem; border-left: 4px solid var(--secondary); background: var(--card);">
+            <div style="display: flex; gap: 0.75rem; align-items: flex-start;">
+              <span style="font-size: 1.6rem;">🌸</span>
+              <div>
+                <h4 style="font-size: 0.95rem; font-weight: 600; margin-bottom: 2px;">ঘুম ও মনের প্রশান্তি</h4>
+                <p style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.45; margin: 0;">পর্যাপ্ত ঘুমের দিনে তোমার মেজাজ সাধারণত বেশ শান্ত ও সুন্দর থাকে। সুস্থ মানসিক অবস্থার জন্য এটি খুব উপকারী।</p>
               </div>
             </div>
           </div>
         `);
       }
+    }
 
-      // 4. PMS Pattern
-      const pmsCommon = ['মাথাব্যথা', 'কোমর ব্যথা', 'ব্যথা', 'ক্লান্তি'];
-      let pmsMatch = 0;
-      deepLogs.slice(0, 10).forEach(l => {
-        if (l.data.symptoms && l.data.symptoms.some(s => pmsCommon.includes(s))) {
-          pmsMatch++;
+    // C. লক্ষণ বনাম সাইকেলের পর্যায় (Symptoms vs Cycle Phase)
+    const logsWithSymptoms = deepLogs.filter(l => l.data.symptoms && Array.isArray(l.data.symptoms) && l.data.symptoms.length > 0);
+    if (logsWithSymptoms.length >= 3) {
+      const phaseSymptoms = {};
+      logsWithSymptoms.forEach(l => {
+        const dStr = l.date;
+        const phaseName = this.calculatePhaseForDate(dStr);
+        if (phaseName) {
+          if (!phaseSymptoms[phaseName]) phaseSymptoms[phaseName] = {};
+          l.data.symptoms.forEach(s => {
+            if (s && !s.includes('কোনো সমস্যা নেই')) {
+              phaseSymptoms[phaseName][s] = (phaseSymptoms[phaseName][s] || 0) + 1;
+            }
+          });
         }
       });
-      if (pmsMatch >= 2) {
+
+      let topPhase = null, topSymp = null, maxCount = 0;
+      Object.keys(phaseSymptoms).forEach(ph => {
+        Object.keys(phaseSymptoms[ph]).forEach(s => {
+          if (phaseSymptoms[ph][s] > maxCount) {
+            maxCount = phaseSymptoms[ph][s];
+            topPhase = ph;
+            topSymp = s;
+          }
+        });
+      });
+
+      if (maxCount >= 2 && topPhase && topSymp) {
+        cards.push(`
+          <div class="card mb-3" style="border-radius: 18px; padding: 1rem; border-left: 4px solid #AB47BC; background: var(--card);">
+            <div style="display: flex; gap: 0.75rem; align-items: flex-start;">
+              <span style="font-size: 1.6rem;">🔍</span>
+              <div>
+                <h4 style="font-size: 0.95rem; font-weight: 600; margin-bottom: 2px;">লক্ষণ ও সাইকেল পর্যায়</h4>
+                <p style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.45; margin: 0;">তোমার ${topPhase}-এ '${topSymp}' লক্ষণটি একটু বেশি দেখা গেছে (${toBanglaNumber(maxCount)} বার)। এই সময়ে হালকা বিশ্রাম ও যত্ন তোমাকে স্বস্তি দেবে।</p>
+              </div>
+            </div>
+          </div>
+        `);
+      }
+    }
+
+    // D. PMS-like patterns (PMS প্যাটার্ন)
+    const periods = STATE.periods || [];
+    if (periods.length > 0 && deepLogs.length >= 3) {
+      let pmsCount = 0;
+      const pmsKeywords = ['মাথাব্যথা', 'পেট ফোলা', 'পিঠে ব্যথা', 'ব্যথা', 'ক্লান্তি', 'খাবারের ইচ্ছা'];
+      const pmsShiftKeywords = ['বিরক্ত', 'কষ্টে', 'উদ্বিগ্ন'];
+
+      periods.forEach(p => {
+        const start = parseLocalDate(p.startDate || p.start);
+        if (start) {
+          for (let daysBefore = 1; daysBefore <= 5; daysBefore++) {
+            const checkD = addDays(start, -daysBefore);
+            const checkDStr = getLocalDateString(checkD);
+            const checkLog = logs[checkDStr];
+            if (checkLog) {
+              const hasPmsSymp = checkLog.symptoms && checkLog.symptoms.some(s => pmsKeywords.some(kw => s.includes(kw)));
+              const hasPmsMood = checkLog.mood && pmsShiftKeywords.some(kw => checkLog.mood.includes(kw));
+              if (hasPmsSymp || hasPmsMood) {
+                pmsCount++;
+                break;
+              }
+            }
+          }
+        }
+      });
+
+      if (pmsCount >= 2) {
         cards.push(`
           <div class="card mb-3" style="border-radius: 18px; padding: 1rem; border-left: 4px solid #FF80AB; background: var(--card);">
             <div style="display: flex; gap: 0.75rem; align-items: flex-start;">
               <span style="font-size: 1.6rem;">🌸</span>
               <div>
                 <h4 style="font-size: 0.95rem; font-weight: 600; margin-bottom: 2px;">পিএমএস (PMS) প্যাটার্ন</h4>
-                <p style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.45; margin: 0;">পিরিয়ডের আগের দিনগুলোতে কোমর বা পেটে মৃদু ব্যথা দেখা যাওয়ার প্যাটার্ন রয়েছে। উষ্ণ শেঁক ও হালকা স্ট্রেচিং অনেক আরাম দেবে।</p>
+                <p style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.45; margin: 0;">পিরিয়ড শুরুর আগের দিনগুলোতে মৃদু অস্বস্তি বা মেজাজে পরিবর্তনের লক্ষণ দেখা গেছে। উষ্ণ তরল পান ও হালকা স্ট্রেচিং অনেক আরাম দেবে।</p>
+              </div>
+            </div>
+          </div>
+        `);
+      }
+    }
+
+    // E. Mood patterns (মেজাজের ধরন প্যাটার্ন)
+    const moodLogs = deepLogs.filter(l => l.data.mood);
+    if (moodLogs.length >= 3) {
+      let positiveCount = 0;
+      let stressCount = 0;
+
+      moodLogs.forEach(l => {
+        const m = l.data.mood;
+        if (m.includes('ভালো') || m.includes('প্রেমময়')) positiveCount++;
+        else if (m.includes('বিরক্ত') || m.includes('কষ্টে') || m.includes('উদ্বিগ্ন') || m.includes('হতাশ')) stressCount++;
+      });
+
+      const total = moodLogs.length;
+      if (positiveCount / total >= 0.5) {
+        cards.push(`
+          <div class="card mb-3" style="border-radius: 18px; padding: 1rem; border-left: 4px solid #66BB6A; background: var(--card);">
+            <div style="display: flex; gap: 0.75rem; align-items: flex-start;">
+              <span style="font-size: 1.6rem;">😊</span>
+              <div>
+                <h4 style="font-size: 0.95rem; font-weight: 600; margin-bottom: 2px;">মেজাজের সাধারণ ধারা</h4>
+                <p style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.45; margin: 0;">গত দিনগুলোতে তোমার মেজাজ সাধারণত ইতিবাচক ও ভালো ছিল। মন শান্ত ও প্রফুল্ল রাখার এই ধারা ধরে রাখো।</p>
+              </div>
+            </div>
+          </div>
+        `);
+      } else if (stressCount / total >= 0.4) {
+        cards.push(`
+          <div class="card mb-3" style="border-radius: 18px; padding: 1rem; border-left: 4px solid #FFA726; background: var(--card);">
+            <div style="display: flex; gap: 0.75rem; align-items: flex-start;">
+              <span style="font-size: 1.6rem;">🧘‍♀️</span>
+              <div>
+                <h4 style="font-size: 0.95rem; font-weight: 600; margin-bottom: 2px;">মানসিক যত্ন ও বিশ্রাম</h4>
+                <p style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.45; margin: 0;">কিছুদিন ধরে কিছুটা মানসিক চাপ বা বিরক্তির অনুভূতি একটু বেশি দেখা যাচ্ছে। নিজের জন্য কিছুটা নির্ভার সময় রাখলে মন ভালো থাকবে।</p>
               </div>
             </div>
           </div>
@@ -2314,7 +3076,7 @@ const app = {
         <div class="empty-insight-state">
           <span class="text-3xl mb-2">🌸</span>
           <p class="text-muted text-sm text-center">
-            আরও কিছু তথ্য ও সাইকেল যোগ করলে গভীর ব্যক্তিগত বিশ্লেষণ এখানে প্রদর্শিত হবে
+            🌸 এই বিশ্লেষণটা দেখানোর জন্য আরও কিছুদিনের তথ্য দরকার।
           </p>
         </div>
       `;
@@ -2329,7 +3091,9 @@ const app = {
     const viewEl = document.getElementById('view-chart-cycle');
     const emptyEl = document.getElementById('empty-chart-cycle');
 
-    if (!data || data.length < 2) {
+    const validData = (data || []).filter(v => typeof v === 'number' && !isNaN(v) && v > 0).slice(-6);
+
+    if (!validData || validData.length < 2) {
       if (viewEl) viewEl.style.display = 'none';
       if (emptyEl) emptyEl.style.display = 'flex';
       return;
@@ -2339,7 +3103,7 @@ const app = {
 
     const ctx = document.getElementById('chart-cycle-history')?.getContext('2d');
     if (!ctx) return;
-    const labels = data.map((_, i) => toBanglaNumber(i + 1));
+    const labels = validData.map((_, i) => `${toBanglaNumber(i + 1)}ম সাইকেল`);
 
     this.safeCreateChart('chart-cycle', ctx, {
       type: 'line',
@@ -2347,9 +3111,9 @@ const app = {
         labels: labels,
         datasets: [{
           label: 'সাইকেল দৈর্ঘ্য (দিন)',
-          data: data,
+          data: validData,
           borderColor: this.getThemeColor('--primary'),
-          backgroundColor: 'color-mix(in srgb, var(--primary) 10%, transparent)',
+          backgroundColor: 'color-mix(in srgb, var(--primary) 12%, transparent)',
           borderWidth: 2.5,
           fill: true,
           tension: 0.35,
@@ -2360,12 +3124,19 @@ const app = {
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        plugins: { legend: { display: false } },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: (context) => ` দৈর্ঘ্য: ${toBanglaNumber(context.raw)} দিন`
+            }
+          }
+        },
         scales: {
           y: {
             beginAtZero: false,
-            min: 18,
-            max: 45,
+            min: Math.max(15, Math.min(...validData) - 3),
+            max: Math.max(...validData) + 3,
             ticks: { callback: v => toBanglaNumber(v) }
           }
         }
@@ -2378,7 +3149,9 @@ const app = {
     const viewEl = document.getElementById('view-chart-period');
     const emptyEl = document.getElementById('empty-chart-period');
 
-    if (!data || data.length < 2) {
+    const validData = (data || []).filter(v => typeof v === 'number' && !isNaN(v) && v > 0).slice(-6);
+
+    if (!validData || validData.length < 2) {
       if (viewEl) viewEl.style.display = 'none';
       if (emptyEl) emptyEl.style.display = 'flex';
       return;
@@ -2388,7 +3161,7 @@ const app = {
 
     const ctx = document.getElementById('chart-period-history')?.getContext('2d');
     if (!ctx) return;
-    const labels = data.map((_, i) => toBanglaNumber(i + 1));
+    const labels = validData.map((_, i) => `${toBanglaNumber(i + 1)}ম পিরিয়ড`);
 
     this.safeCreateChart('chart-period', ctx, {
       type: 'bar',
@@ -2396,7 +3169,7 @@ const app = {
         labels: labels,
         datasets: [{
           label: 'স্থায়িত্ব (দিন)',
-          data: data,
+          data: validData,
           backgroundColor: this.getThemeColor('--secondary'),
           borderRadius: 6
         }]
@@ -2404,11 +3177,18 @@ const app = {
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        plugins: { legend: { display: false } },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: (context) => ` স্থায়িত্ব: ${toBanglaNumber(context.raw)} দিন`
+            }
+          }
+        },
         scales: {
           y: {
             beginAtZero: true,
-            max: 10,
+            max: Math.max(10, Math.max(...validData) + 2),
             ticks: { callback: v => toBanglaNumber(v) }
           }
         }
@@ -2422,9 +3202,14 @@ const app = {
     const emptyEl = document.getElementById('empty-chart-symptom');
 
     const counts = {};
-    Object.values(logs).forEach(l => {
+    Object.values(logs || {}).forEach(l => {
       if (l.symptoms && Array.isArray(l.symptoms)) {
-        l.symptoms.forEach(s => { counts[s] = (counts[s] || 0) + 1; });
+        l.symptoms.forEach(s => {
+          if (typeof s === 'string' && s.trim() && !s.includes('কোনো সমস্যা নেই')) {
+            const key = s.trim();
+            counts[key] = (counts[key] || 0) + 1;
+          }
+        });
       }
     });
 
@@ -2455,9 +3240,20 @@ const app = {
         indexAxis: 'y',
         responsive: true,
         maintainAspectRatio: false,
-        plugins: { legend: { display: false } },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: (context) => ` উপস্থিতি: ${toBanglaNumber(context.raw)} বার`
+            }
+          }
+        },
         scales: {
-          x: { display: false },
+          x: {
+            display: false,
+            beginAtZero: true,
+            ticks: { callback: v => toBanglaNumber(v) }
+          },
           y: { border: { display: false }, grid: { display: false } }
         }
       }
@@ -2470,8 +3266,11 @@ const app = {
     const emptyEl = document.getElementById('empty-chart-mood');
 
     const counts = {};
-    Object.values(logs).forEach(l => {
-      if (l.mood) counts[l.mood] = (counts[l.mood] || 0) + 1;
+    Object.values(logs || {}).forEach(l => {
+      if (l.mood && typeof l.mood === 'string' && l.mood.trim()) {
+        const key = l.mood.trim();
+        counts[key] = (counts[key] || 0) + 1;
+      }
     });
 
     const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
@@ -2487,11 +3286,14 @@ const app = {
     if (!ctx) return;
 
     const moodColors = {
-      '😊 ভালো': '#A5D6A7',
-      '😐 স্বাভাবিক': '#E0E0E0',
-      '😢 কষ্টে': '#90CAF9',
-      '😡 রাগী': '#EF9A9A',
-      '😭 সংবেদনশীল': '#CE93D8'
+      '😊 ভালো': '#81C784',
+      '😐 স্বাভাবিক': '#B0BEC5',
+      '😢 কষ্টে': '#64B5F6',
+      '😠 বিরক্ত': '#FF8A65',
+      '😰 উদ্বিগ্ন': '#BA68C8',
+      '🥰 প্রেমময়': '#F06292',
+      '😤 হতাশ': '#E57373',
+      '😴 ঘুমঘুম': '#90A4AE'
     };
 
     const totalMoods = sorted.reduce((sum, item) => sum + item[1], 0);
@@ -2505,7 +3307,7 @@ const app = {
           backgroundColor: sorted.map(k => moodColors[k[0]] || 'var(--primary)'),
           borderWidth: 2,
           borderColor: this.getThemeColor('--card'),
-          cutout: '72%'
+          cutout: '70%'
         }]
       },
       options: {
@@ -2517,7 +3319,7 @@ const app = {
             callbacks: {
               label: (context) => {
                 const val = context.raw;
-                const pct = Math.round((val / totalMoods) * 100);
+                const pct = totalMoods > 0 ? Math.round((val / totalMoods) * 100) : 0;
                 return ` ${toBanglaNumber(val)} বার (${toBanglaNumber(pct)}%)`;
               }
             }
@@ -2531,26 +3333,56 @@ const app = {
     const container = document.getElementById('analytics-mood-timeline');
     if (!container) return;
 
-    const logDates = Object.keys(logs).filter(d => logs[d]?.mood).sort().reverse().slice(0, 10);
+    // Filter dates with mood or notes, sorted in chronological order (newest first!)
+    const logDates = Object.keys(logs || {})
+      .filter(d => logs[d]?.mood || logs[d]?.notes)
+      .sort()
+      .reverse()
+      .slice(0, 15);
+
     if (logDates.length === 0) {
-      container.innerHTML = `<p class="text-muted text-sm text-center w-full">লগ করার পর মেজাজের সময়রেখা এখানে দেখাবে</p>`;
+      container.innerHTML = `<p class="text-muted text-sm text-center w-full py-3">🌸 লগ করার পর মেজাজের সময়রেখা এখানে দেখাবে।</p>`;
       return;
     }
 
+    const phaseColors = {
+      'মাসিকের সময়': 'var(--primary)',
+      'ফলিকুলার পর্যায়': 'var(--secondary)',
+      'ডিম্বস্ফোটনের সময়': 'var(--accent)',
+      'লুটিয়াল পর্যায়': '#D89A00'
+    };
+
     let html = '';
-    // Chronological order from oldest to newest in slice
-    [...logDates].reverse().forEach(dStr => {
-      const moodVal = logs[dStr]?.mood || '';
-      const emoji = moodVal ? moodVal.split(' ')[0] : '➖';
-      const label = formatBanglaShortDate(new Date(dStr));
+    logDates.forEach(dStr => {
+      const entry = logs[dStr] || {};
+      const moodVal = entry.mood || '';
+      const emoji = moodVal ? moodVal.split(' ')[0] : '📝';
+      const moodText = moodVal ? moodVal.substring(emoji.length).trim() : 'নোট সংরক্ষিত';
+      const label = formatBanglaDate(parseLocalDate(dStr));
+      const phaseName = this.calculatePhaseForDate(dStr);
+      const notePreview = entry.notes ? entry.notes.trim() : '';
+
+      let phaseBadgeHtml = '';
+      if (phaseName) {
+        const pColor = phaseColors[phaseName] || 'var(--primary)';
+        phaseBadgeHtml = `<span style="background: color-mix(in srgb, ${pColor} 12%, transparent); color: ${pColor}; border: 1px solid color-mix(in srgb, ${pColor} 25%, transparent); padding: 2px 8px; border-radius: 12px; font-size: 0.72rem; font-weight: 600;">${phaseName}</span>`;
+      }
 
       html += `
-        <div style="text-align: center; flex: 0 0 54px; background: color-mix(in srgb, var(--primary) 4%, transparent); padding: 8px 4px; border-radius: 14px; border: 1px solid var(--border);">
-          <div style="font-size: 1.6rem;">${emoji}</div>
-          <small class="text-muted" style="font-size: 0.72rem; display: block; margin-top: 4px;">${label}</small>
+        <div style="background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 12px 14px; box-shadow: 0 2px 8px rgba(0,0,0,0.02);">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <span style="font-weight: 600; font-size: 0.88rem; color: var(--text-main);">${label}</span>
+            ${phaseBadgeHtml}
+          </div>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="font-size: 1.4rem;">${emoji}</span>
+            <span style="font-size: 0.9rem; font-weight: 500; color: var(--text-main);">${moodText}</span>
+          </div>
+          ${notePreview ? `<p style="margin: 8px 0 0 0; font-size: 0.82rem; color: var(--text-muted); font-style: italic; background: color-mix(in srgb, var(--primary) 4%, transparent); padding: 6px 10px; border-radius: 8px; line-height: 1.4;">“${notePreview}”</p>` : ''}
         </div>
       `;
     });
+
     container.innerHTML = html;
   },
 
@@ -2558,16 +3390,42 @@ const app = {
   // 10. SETTINGS VIEW (CANONICAL)
   // ==========================================
   saveSettingsProfile() {
-    if (STATE.profile) {
-      const newName = document.getElementById('settings-name')?.value || '';
-      const newAgeVal = document.getElementById('settings-age')?.value;
-      const newAgeNum = parseInt(newAgeVal, 10);
-      STATE.profile.name = newName.trim();
-      STATE.profile.age = !isNaN(newAgeNum) && newAgeNum >= 10 && newAgeNum <= 65 ? newAgeNum : null;
-      STATE.profile = this.validate('profile', STATE.profile);
-      this.saveData('fz_profile', STATE.profile);
-      this.renderHome();
-      this.showToast('✅ প্রোফাইল তথ্য আপডেট হয়েছে');
+    if (!STATE.profile) {
+      STATE.profile = {
+        name: 'ব্যবহারকারী',
+        age: null,
+        cycleLength: 28,
+        periodLength: 5,
+        lastPeriodStart: getLocalDateString(new Date()),
+        setupDone: true
+      };
+    }
+    const nameEl = document.getElementById('settings-name');
+    const ageEl = document.getElementById('settings-age');
+    if (!nameEl && !ageEl) return;
+
+    const newName = nameEl?.value ?? '';
+    const newAgeVal = ageEl?.value;
+    const newAgeNum = parseInt(newAgeVal, 10);
+    STATE.profile.name = newName.trim() || 'ব্যবহারকারী';
+    STATE.profile.age = !isNaN(newAgeNum) && newAgeNum >= 10 && newAgeNum <= 65 ? newAgeNum : null;
+    STATE.profile = this.validate('profile', STATE.profile);
+    this.saveData('fz_profile', STATE.profile);
+    this.renderHome();
+    this.showToast('✅ প্রোফাইল তথ্য আপডেট হয়েছে');
+  },
+
+  flushSettingsIfDirty() {
+    if (!STATE.profile) return;
+    const nameEl = document.getElementById('settings-name');
+    const ageEl = document.getElementById('settings-age');
+    if (!nameEl && !ageEl) return;
+    const newName = nameEl?.value?.trim() || 'ব্যবহারকারী';
+    const ageVal = ageEl?.value;
+    const newAgeNum = parseInt(ageVal, 10);
+    const validAge = !isNaN(newAgeNum) && newAgeNum >= 10 && newAgeNum <= 65 ? newAgeNum : null;
+    if (newName !== STATE.profile.name || validAge !== STATE.profile.age) {
+      this.saveSettingsProfile();
     }
   },
 
@@ -2743,7 +3601,9 @@ const app = {
       if (val === this.tempPin) {
         STATE.settings.pin = val;
         STATE.settings.pinEnabled = true;
+        STATE.settings = this.validate('settings', STATE.settings);
         this.saveData('fz_settings', STATE.settings);
+        sessionStorage.setItem('fz_unlocked', '1');
         this.hideLockScreen();
         this.bootMainApp();
         this.renderSettings();
@@ -2759,6 +3619,7 @@ const app = {
       if (val === STATE.settings.pin) {
         STATE.settings.pinEnabled = false;
         STATE.settings.pin = null;
+        STATE.settings = this.validate('settings', STATE.settings);
         this.saveData('fz_settings', STATE.settings);
         this.hideLockScreen();
         this.bootMainApp();
@@ -2952,6 +3813,7 @@ const app = {
           if (permission === 'granted') {
             STATE.settings.remindersEnabled = true;
             if (!STATE.settings.reminderTime) STATE.settings.reminderTime = "08:00";
+            STATE.settings = this.validate('settings', STATE.settings);
             this.saveData('fz_settings', STATE.settings);
             this.renderSettings();
             this.showToast('🌸 রিমাইন্ডার চালু হয়েছে');
@@ -2967,6 +3829,7 @@ const app = {
       }
     } else {
       STATE.settings.remindersEnabled = false;
+      STATE.settings = this.validate('settings', STATE.settings);
       this.saveData('fz_settings', STATE.settings);
       this.renderSettings();
       this.showToast('রিমাইন্ডার বন্ধ করা হয়েছে');
@@ -2978,6 +3841,7 @@ const app = {
     const t = document.getElementById('reminder-time')?.value;
     if (t) {
       STATE.settings.reminderTime = t;
+      STATE.settings = this.validate('settings', STATE.settings);
       this.saveData('fz_settings', STATE.settings);
       this.showToast('রিমাইন্ডার সময় সংরক্ষিত হয়েছে');
     }

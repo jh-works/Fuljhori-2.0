@@ -149,44 +149,60 @@
              <div style="flex: 1; max-width: 400px; margin: 0 auto; width: 100%; display: flex; flex-direction: column; justify-content: flex-start; padding-top: 1rem; align-items: center;">
                <img src="https://lh3.googleusercontent.com/d/1TBzsW-gNcqL9elNRNF6G4mIs-xUTMWZ1" alt="ফুলঝরি লোগো" class="ob-logo-small" referrerpolicy="no-referrer" onerror="this.onerror=null; this.style.display='none';" />
                <h2 style="font-size: 1.6rem; margin-bottom: 0.25rem; text-align: center; color: var(--text-main); width: 100%;">তোমার তথ্য দাও</h2>
-               <p style="text-align: center; color: var(--text-muted); margin-bottom: 1.25rem; font-size: 0.95rem; width: 100%;">সঠিক হিসাবের জন্য নিচের তথ্যগুলো প্রয়োজন</p>
+               <p style="text-align: center; color: var(--text-muted); margin-bottom: 0.75rem; font-size: 0.95rem; width: 100%;">সঠিক হিসাবের জন্য নিচের তথ্যগুলো প্রয়োজন</p>
                
+               <div style="display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 0.82rem; color: var(--text-muted); margin-bottom: 1rem; text-align: center; background: color-mix(in srgb, var(--primary) 8%, transparent); padding: 6px 12px; border-radius: 20px; border: 1px solid color-mix(in srgb, var(--primary) 15%, transparent);">
+                 <span>🌸</span> <span>তোমার তথ্য এই ফোনেই সংরক্ষিত থাকে।</span>
+               </div>
+
                <div class="ob-card" style="width: 100%;">
                  <div class="form-group mb-4">
-                   <label class="ob-label">নাম</label>
-                   <input type="text" id="ob-setup-name" placeholder="তোমার নাম" maxlength="20" class="ob-input w-full mt-1" oninput="document.getElementById('ob-name-err').style.display='none'"/>
-                   <small id="ob-name-err" class="ob-error">নাম ২০ অক্ষরের বেশি হতে পারবেনা</small>
+                   <label class="ob-label">নাম <span style="font-size: 0.8rem; font-weight: normal; color: var(--text-muted);">(ঐচ্ছিক)</span></label>
+                   <input type="text" id="ob-setup-name" placeholder="তোমার নাম" maxlength="30" class="ob-input w-full mt-1" oninput="document.getElementById('ob-name-err').style.display='none'"/>
+                   <small id="ob-name-err" class="ob-error">নাম ৩০ অক্ষরের মধ্যে লিখো</small>
                  </div>
 
                  <div class="form-group mb-4">
-                   <label class="ob-label">বয়স</label>
-                   <input type="number" id="ob-setup-age" placeholder="যেমন: ২০" min="10" max="60" class="ob-input w-full mt-1" oninput="document.getElementById('ob-age-err').style.display='none'"/>
-                   <small id="ob-age-err" class="ob-error">বয়স ১০ থেকে ৬০ এর মধ্যে হতে হবে</small>
+                   <label class="ob-label">বয়স <span style="font-size: 0.8rem; font-weight: normal; color: var(--text-muted);">(ঐচ্ছিক)</span></label>
+                   <input type="number" id="ob-setup-age" placeholder="যেমন: ২০" min="10" max="65" class="ob-input w-full mt-1" oninput="document.getElementById('ob-age-err').style.display='none'"/>
+                   <small id="ob-age-err" class="ob-error">বয়সটা ঠিকভাবে লিখো।</small>
                  </div>
                  
                  <div class="form-group mb-4 relative">
-                   <label class="ob-label">শেষ পিরিয়ড শুরুর তারিখ</label>
+                   <label class="ob-label">শেষ পিরিয়ড শুরুর তারিখ <span style="color: var(--primary);">*</span></label>
                    <div style="position: relative;" class="mt-1">
                      <i class="ob-date-icon">📅</i>
                      <input type="date" id="ob-setup-last-period" class="ob-input w-full ob-date-input" oninput="document.getElementById('ob-date-err').style.display='none'"/>
                    </div>
-                   <small id="ob-date-err" class="ob-error">দয়া করে সঠিক তারিখ নির্বাচন করো</small>
+                   <small id="ob-date-err" class="ob-error">তারিখটা ঠিক করে দাও।</small>
                  </div>
 
                  <div class="form-group mb-4 mt-3">
-                   <label style="display: flex; justify-content: space-between; align-items: center;" class="ob-label">
-                     <span>🌙 সাইকেল দৈর্ঘ্য</span>
+                   <div style="display: flex; justify-content: space-between; align-items: center;" class="ob-label">
+                     <span>🌙 সাধারণত সাইকেল কত দিনের?</span>
                      <span class="ob-value-pill" id="ob-cycle-val">২৮ দিন</span>
-                   </label>
-                   <input type="range" id="ob-setup-cycle" min="21" max="45" value="28" class="ob-slider w-full mt-3" oninput="document.getElementById('ob-cycle-val').innerText = toBanglaNumber(this.value) + ' দিন'" />
+                   </div>
+                   <input type="range" id="ob-setup-cycle" min="21" max="45" value="28" class="ob-slider w-full mt-3" oninput="app.onCycleSliderChange(this.value)" />
+                   <div style="display: flex; justify-content: flex-end; align-items: center; gap: 6px; margin-top: 6px;">
+                     <label style="display: inline-flex; align-items: center; gap: 6px; font-size: 0.82rem; color: var(--text-muted); cursor: pointer; user-select: none;">
+                       <input type="checkbox" id="ob-cycle-unknown" onchange="app.toggleCycleUnknown(this.checked)" style="accent-color: var(--primary); cursor: pointer;" />
+                       <span>জানি না</span>
+                     </label>
+                   </div>
                  </div>
 
                  <div class="form-group mb-2 pt-2 border-t" style="border-top: 1px solid var(--border);">
-                   <label style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.5rem;" class="ob-label">
-                     <span>🌸 পিরিয়ডের সময়কাল</span>
+                   <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.5rem;" class="ob-label">
+                     <span>🌸 সাধারণত পিরিয়ড কত দিন থাকে?</span>
                      <span class="ob-value-pill" id="ob-period-val">৫ দিন</span>
-                   </label>
-                   <input type="range" id="ob-setup-period" min="2" max="10" value="5" class="ob-slider w-full mt-3" oninput="document.getElementById('ob-period-val').innerText = toBanglaNumber(this.value) + ' দিন'" />
+                   </div>
+                   <input type="range" id="ob-setup-period" min="2" max="10" value="5" class="ob-slider w-full mt-3" oninput="app.onPeriodSliderChange(this.value)" />
+                   <div style="display: flex; justify-content: flex-end; align-items: center; gap: 6px; margin-top: 6px;">
+                     <label style="display: inline-flex; align-items: center; gap: 6px; font-size: 0.82rem; color: var(--text-muted); cursor: pointer; user-select: none;">
+                       <input type="checkbox" id="ob-period-unknown" onchange="app.togglePeriodUnknown(this.checked)" style="accent-color: var(--primary); cursor: pointer;" />
+                       <span>জানি না</span>
+                     </label>
+                   </div>
                  </div>
                </div>
              </div>
@@ -212,11 +228,11 @@
                   <polyline points="20 6 9 17 4 12"></polyline>
                 </svg>
               </div>
-              <h1 style="font-size: 1.8rem; margin-bottom: 0.75rem; color: var(--text-main); font-weight: 600;">তোমার প্রোফাইল প্রস্তুত</h1>
-              <p style="color: var(--text-muted); font-size: 1.05rem; max-width: 85%; line-height: 1.6;">এখন থেকে সহজেই তোমার সাইকেল ও দৈনিক তথ্য ট্র্যাক করতে পারবে।</p>
+              <h1 style="font-size: 1.8rem; margin-bottom: 0.75rem; color: var(--text-main); font-weight: 600;">সব ঠিকঠাক! 🎉</h1>
+              <p style="color: var(--text-muted); font-size: 1.05rem; max-width: 85%; line-height: 1.6;">তোমার তথ্য নিরাপদে সংরক্ষণ করা হয়েছে</p>
             </div>
             <div style="width: 100%; max-width: 400px; margin-bottom: 3rem;">
-              <button class="ob-btn w-full" onclick="app.finishOnboardingSafe()">
+              <button class="ob-btn w-full" onclick="app.finishOnboarding()">
                 শুরু করি
               </button>
               <div class="ob-pagination-group" style="display: flex; justify-content: center; gap: 8px; margin-top: 1.5rem;">
@@ -417,174 +433,169 @@
         </div>
 
         <!-- Log View -->
+        <!-- Log View -->
         <div id="view-log" class="view">
           <header class="sticky-header">
             <div class="flex-between">
-              <h2>লগ খাতা</h2>
-              <input
-                type="date"
-                id="log-date"
-                class="log-date-picker"
-                onchange="app.loadLogForDate()"
-              />
+              <div>
+                <h2>লগ খাতা</h2>
+              </div>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <input
+                  type="date"
+                  id="log-date"
+                  class="log-date-picker"
+                  onchange="app.onLogDateChange()"
+                />
+              </div>
             </div>
           </header>
           <div class="scroll-content">
+            <!-- 1. Period Section -->
             <div class="card">
-              <h3>রক্তপ্রবাহ (Flow)</h3>
-              <div class="chip-group mt-2" id="flow-chips">
-                <div
-                  class="chip-item"
-                  onclick="app.toggleSingleChip(this, 'flow-chips')"
-                >
-                  অল্প
+              <h3>পিরিয়ডের অবস্থা</h3>
+              
+              <div class="mt-3">
+                <label class="text-sm text-muted font-medium block mb-2">আজ কি পিরিয়ড শুরু হয়েছে?</label>
+                <div class="chip-group" id="period-start-chips">
+                  <div class="chip-item" onclick="app.setPeriodStart(true)">হ্যাঁ</div>
+                  <div class="chip-item" onclick="app.setPeriodStart(false)">না</div>
                 </div>
-                <div
-                  class="chip-item"
-                  onclick="app.toggleSingleChip(this, 'flow-chips')"
-                >
-                  মাঝারি
+              </div>
+
+              <div id="flow-section" class="mt-4" style="display: none;">
+                <label class="text-sm text-muted font-medium block mb-2">রক্তপ্রবাহ (Flow)</label>
+                <div class="chip-group" id="flow-chips">
+                  <div class="chip-item" onclick="app.toggleSingleChip(this, 'flow-chips')">হালকা 🩸</div>
+                  <div class="chip-item" onclick="app.toggleSingleChip(this, 'flow-chips')">মাঝারি 🩸🩸</div>
+                  <div class="chip-item" onclick="app.toggleSingleChip(this, 'flow-chips')">ভারী 🩸🩸🩸</div>
+                  <div class="chip-item" onclick="app.toggleSingleChip(this, 'flow-chips')">স্পটিং 🔴</div>
                 </div>
-                <div
-                  class="chip-item"
-                  onclick="app.toggleSingleChip(this, 'flow-chips')"
-                >
-                  বেশি
+              </div>
+
+              <div class="mt-4">
+                <label class="text-sm text-muted font-medium block mb-2">আজ কি পিরিয়ড শেষ হয়েছে?</label>
+                <div class="chip-group" id="period-end-chips">
+                  <div class="chip-item" onclick="app.setPeriodEnd(true)">হ্যাঁ</div>
+                  <div class="chip-item" onclick="app.setPeriodEnd(false)">না</div>
                 </div>
               </div>
             </div>
 
+            <!-- 2. Symptoms Section -->
             <div class="card mt-4">
               <h3>লক্ষণসমূহ</h3>
+              <p class="text-xs text-muted mt-1 mb-2">একাধিক লক্ষণ বেছে নিতে পারো</p>
               <div class="chip-group mt-2" id="symptom-chips">
-                <div class="chip-item" onclick="app.toggleChip(this)">
-                  ব্যথা
-                </div>
-                <div class="chip-item" onclick="app.toggleChip(this)">
-                  ক্লান্তি
-                </div>
-                <div class="chip-item" onclick="app.toggleChip(this)">
-                  মাথাব্যথা
-                </div>
-                <div class="chip-item" onclick="app.toggleChip(this)">ব্রণ</div>
-                <div class="chip-item" onclick="app.toggleChip(this)">
-                  বমি বমি ভাব
-                </div>
-                <div class="chip-item" onclick="app.toggleChip(this)">
-                  কোমর ব্যথা
-                </div>
+                <div class="chip-item" onclick="app.toggleSymptomChip(this)">ব্যথা 😣</div>
+                <div class="chip-item" onclick="app.toggleSymptomChip(this)">মাথাব্যথা 🤕</div>
+                <div class="chip-item" onclick="app.toggleSymptomChip(this)">পেট ফোলা 😮💨</div>
+                <div class="chip-item" onclick="app.toggleSymptomChip(this)">পিঠে ব্যথা 💢</div>
+                <div class="chip-item" onclick="app.toggleSymptomChip(this)">বুকে ব্যথা 🤱</div>
+                <div class="chip-item" onclick="app.toggleSymptomChip(this)">বমি ভাব 🤢</div>
+                <div class="chip-item" onclick="app.toggleSymptomChip(this)">ক্লান্তি 😴</div>
+                <div class="chip-item" onclick="app.toggleSymptomChip(this)">ব্রণ 😤</div>
+                <div class="chip-item" onclick="app.toggleSymptomChip(this)">খাবারের ইচ্ছা 🍫</div>
+                <div class="chip-item" onclick="app.toggleSymptomChip(this)">কোনো সমস্যা নেই ✅</div>
               </div>
             </div>
 
+            <!-- 3. Mood Section -->
             <div class="card mt-4">
-              <h3>মেজাজ</h3>
+              <h3>আজ মেজাজ কেমন?</h3>
               <div class="chip-group mt-2" id="mood-chips">
-                <div
-                  class="chip-item"
-                  onclick="app.toggleSingleChip(this, 'mood-chips')"
-                >
-                  😊 ভালো
-                </div>
-                <div
-                  class="chip-item"
-                  onclick="app.toggleSingleChip(this, 'mood-chips')"
-                >
-                  😐 স্বাভাবিক
-                </div>
-                <div
-                  class="chip-item"
-                  onclick="app.toggleSingleChip(this, 'mood-chips')"
-                >
-                  😢 কষ্টে
-                </div>
-                <div
-                  class="chip-item"
-                  onclick="app.toggleSingleChip(this, 'mood-chips')"
-                >
-                  😡 রাগী
-                </div>
-                <div
-                  class="chip-item"
-                  onclick="app.toggleSingleChip(this, 'mood-chips')"
-                >
-                  😭 সংবেদনশীল
-                </div>
+                <div class="chip-item" onclick="app.toggleSingleChip(this, 'mood-chips')">😊 ভালো</div>
+                <div class="chip-item" onclick="app.toggleSingleChip(this, 'mood-chips')">😢 কষ্টে</div>
+                <div class="chip-item" onclick="app.toggleSingleChip(this, 'mood-chips')">😠 বিরক্ত</div>
+                <div class="chip-item" onclick="app.toggleSingleChip(this, 'mood-chips')">😰 উদ্বিগ্ন</div>
+                <div class="chip-item" onclick="app.toggleSingleChip(this, 'mood-chips')">😐 স্বাভাবিক</div>
+                <div class="chip-item" onclick="app.toggleSingleChip(this, 'mood-chips')">🥰 প্রেমময়</div>
+                <div class="chip-item" onclick="app.toggleSingleChip(this, 'mood-chips')">😤 হতাশ</div>
+                <div class="chip-item" onclick="app.toggleSingleChip(this, 'mood-chips')">😴 ঘুমঘুম</div>
               </div>
             </div>
 
+            <!-- 4. Energy Section (1 to 10) -->
             <div class="card mt-4">
               <div class="flex-between">
-                <h3>এনার্জি</h3>
-                <span
-                  id="energy-val"
-                  class="font-bold text-accent"
-                  style="font-size: 1.2rem"
-                  >৫০%</span
-                >
+                <h3>শক্তির মাত্রা</h3>
+                <span id="energy-val" class="font-bold text-accent" style="font-size: 1.15rem;">শক্তি: ৫/১০</span>
               </div>
-              <div class="mt-2">
+              <div class="mt-3">
                 <input
                   type="range"
                   id="log-energy"
-                  min="0"
-                  max="100"
-                  value="50"
-                  style="width: 100%"
-                  oninput="
-                    document.getElementById('energy-val').innerText =
-                      toBanglaNumber(this.value) + '%'
-                  "
+                  min="1"
+                  max="10"
+                  step="1"
+                  value="5"
+                  style="width: 100%; accent-color: var(--primary);"
+                  oninput="app.updateEnergyDisplay(this.value)"
                 />
               </div>
-              <div class="flex-between text-sm text-muted mt-1">
-                <span>০%</span>
-                <span>৫০%</span>
-                <span>১০০%</span>
+              <div class="flex-between text-xs text-muted mt-1">
+                <span>১ (খুব কম)</span>
+                <span>৫</span>
+                <span>১০ (অনেক বেশি)</span>
               </div>
             </div>
 
+            <!-- 5. Sleep Section (Duration + Quality) -->
             <div class="card mt-4">
               <h3>ঘুম</h3>
-              <div class="chip-group mt-2" id="sleep-chips">
-                <div
-                  class="chip-item"
-                  onclick="app.toggleSingleChip(this, 'sleep-chips')"
-                >
-                  ভালো ঘুম
+              
+              <div class="mt-2 mb-3">
+                <div class="flex-between mb-1">
+                  <label class="text-sm text-muted font-medium">ঘুমের সময়কাল</label>
+                  <span id="sleep-hours-val" class="font-bold text-primary" style="font-size: 1.05rem;">৭.৫ ঘণ্টা</span>
                 </div>
-                <div
-                  class="chip-item"
-                  onclick="app.toggleSingleChip(this, 'sleep-chips')"
-                >
-                  মাঝারি
+                <input
+                  type="range"
+                  id="log-sleep-hours"
+                  min="3"
+                  max="14"
+                  step="0.5"
+                  value="7.5"
+                  style="width: 100%; accent-color: var(--primary);"
+                  oninput="app.updateSleepHoursDisplay(this.value)"
+                />
+                <div class="flex-between text-xs text-muted mt-1">
+                  <span>৩ ঘণ্টা</span>
+                  <span>৭.৫ ঘণ্টা</span>
+                  <span>১৪ ঘণ্টা</span>
                 </div>
-                <div
-                  class="chip-item"
-                  onclick="app.toggleSingleChip(this, 'sleep-chips')"
-                >
-                  কম ঘুম
+              </div>
+
+              <div class="mt-4">
+                <label class="text-sm text-muted font-medium block mb-2">ঘুম কেমন হয়েছে?</label>
+                <div class="chip-group" id="sleep-chips">
+                  <div class="chip-item" onclick="app.toggleSingleChip(this, 'sleep-chips')">😴 খারাপ</div>
+                  <div class="chip-item" onclick="app.toggleSingleChip(this, 'sleep-chips')">😐 ঠিকঠাক</div>
+                  <div class="chip-item" onclick="app.toggleSingleChip(this, 'sleep-chips')">😊 ভালো</div>
                 </div>
               </div>
             </div>
 
+            <!-- 6. Notes Section -->
             <div class="card mt-4 mb-4">
               <h3>নোট</h3>
               <textarea
                 id="log-notes"
                 rows="3"
-                placeholder="আজকের দিনটা কেমন কাটলো? আপনার অনুভূতি শেয়ার করুন..."
+                placeholder="আজকের অনুভূতি লিখো... (ঐচ্ছিক)"
                 class="modern-textarea mt-3"
-                oninput="app.isEditingNotes = true"
+                oninput="app.markLogDirty()"
               ></textarea>
             </div>
 
+            <!-- 7. Save Action Button -->
             <div>
               <button
                 id="save-log-btn"
                 class="btn primary w-full log-save-btn"
                 onclick="app.saveLog()"
               >
-                আজকের তথ্য সংরক্ষণ করুন 🌸
+                আজকের তথ্য সেভ করো 🌸
               </button>
             </div>
           </div>
@@ -599,12 +610,14 @@
             class="scroll-content"
             id="analytics-content"
           >
+            <!-- 5. পরবর্তী সময়ের হিসাব -->
             <div class="card prediction-card mt-2 mb-4">
               <div class="prediction-header">
-                <h3 class="font-bold">ভবিষ্যদ্বাণী</h3>
+                <h3 class="font-bold">পরবর্তী সময়ের হিসাব</h3>
                 <span class="prediction-icon">✨</span>
               </div>
-              <div class="prediction-grid mt-4">
+              <p class="text-xs text-muted mt-1">*সাইকেল ইতিহাসের ভিত্তিতে সম্ভাব্য অনুমান</p>
+              <div class="prediction-grid mt-3">
                 <div class="prediction-item">
                   <span class="prediction-label">পরবর্তী পিরিয়ড</span>
                   <span class="prediction-value" id="pred-next-period">-</span>
@@ -615,35 +628,29 @@
                 </div>
                 <div class="prediction-item">
                   <span class="prediction-label">ফার্টাইল উইন্ডো</span>
-                  <span class="prediction-value" id="pred-fertile-window"
-                    >-</span
-                  >
+                  <span class="prediction-value" id="pred-fertile-window">-</span>
                 </div>
+              </div>
+              <div id="pred-unavailable-msg" class="text-xs text-muted mt-3 text-center" style="display: none; padding: 6px 10px; background: color-mix(in srgb, var(--primary) 6%, transparent); border-radius: 12px;">
+                আরও তথ্য যোগ করলে পরের সময়ের হিসাব দেখানো যাবে।
               </div>
             </div>
 
-            <!-- Smart Health Analysis (Canonical Single Section) -->
-            <div class="card mb-4" id="smart-health-insight-wrapper">
-              <div class="flex-between">
-                <h3 class="font-bold">🧠 স্মার্ট স্বাস্থ্য বিশ্লেষণ</h3>
-                <span class="text-xs text-muted">প্যাটার্ন ও ভ্যারিয়েবিলিটি</span>
-              </div>
-              <div id="smart-insights-container" class="insights-container mt-4">
-                <div class="empty-insight-state">
-                  <span class="text-3xl mb-2">🌸</span>
-                  <p class="text-muted text-sm text-center">
-                    আরও কিছু তথ্য যোগ করলে ব্যক্তিগত গভীর বিশ্লেষণ দেখা যাবে
-                  </p>
-                </div>
-              </div>
-            </div>
-
+            <!-- 6. সংক্ষিপ্ত পরিসংখ্যান -->
             <div class="card mb-4">
               <div class="flex-between">
-                <h3 class="font-bold">সারসংক্ষেপ</h3>
-                <span class="text-xs text-muted">ডেটা</span>
+                <h3 class="font-bold">সংক্ষিপ্ত পরিসংখ্যান</h3>
+                <span class="text-xs text-muted">সংগৃহীত তথ্য</span>
               </div>
-              <div class="stats-grid-3 mt-4">
+              <div class="stats-grid-3 mt-4" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); gap: 10px;">
+                <div class="stat-box">
+                  <span class="stat-value" id="stat-avg-cycle">-</span>
+                  <span class="stat-label">গড় সাইকেল</span>
+                </div>
+                <div class="stat-box">
+                  <span class="stat-value" id="stat-avg-period">-</span>
+                  <span class="stat-label">গড় পিরিয়ড</span>
+                </div>
                 <div class="stat-box">
                   <span class="stat-value" id="stat-min-cycle">-</span>
                   <span class="stat-label">সবচেয়ে ছোট সাইকেল</span>
@@ -659,10 +666,11 @@
               </div>
             </div>
 
+            <!-- 1. সাইকেলের ইতিহাস -->
             <div class="card mb-4">
               <div class="flex-between">
-                <h3 class="font-bold">সাইকেল হিস্ট্রি</h3>
-                <span class="text-xs text-muted">দিন</span>
+                <h3 class="font-bold">সাইকেলের ইতিহাস</h3>
+                <span class="text-xs text-muted" id="stat-avg-cycle-sub">গড় সাইকেল: -</span>
               </div>
               <div
                 id="view-chart-cycle"
@@ -674,15 +682,16 @@
               <div id="empty-chart-cycle" class="empty-chart-state">
                 <span class="text-3xl mb-2">📉</span>
                 <p class="text-muted text-sm text-center">
-                  পর্যবেক্ষণের জন্য কমপক্ষে দুটি পিরিয়ড লগ করুন।
+                  📊 অন্তত ২টি সম্পূর্ণ সাইকেল লগ করলে এখানে বিশ্লেষণ দেখা যাবে।
                 </p>
               </div>
             </div>
 
+            <!-- 2. পিরিয়ডের স্থায়িত্ব -->
             <div class="card mb-4">
               <div class="flex-between">
-                <h3 class="font-bold">পিরিয়ড স্থায়িত্ব</h3>
-                <span class="text-xs text-muted">দিন</span>
+                <h3 class="font-bold">পিরিয়ডের স্থায়িত্ব</h3>
+                <span class="text-xs text-muted" id="stat-avg-period-sub">গড় পিরিয়ড: -</span>
               </div>
               <div
                 id="view-chart-period"
@@ -694,11 +703,12 @@
               <div id="empty-chart-period" class="empty-chart-state">
                 <span class="text-3xl mb-2">📊</span>
                 <p class="text-muted text-sm text-center">
-                  পর্যবেক্ষণের জন্য কমপক্ষে দুটি পিরিয়ড লগ করুন।
+                  📊 অন্তত ২টি পিরিয়ড লগ করলে এখানে স্থায়িত্বের বিশ্লেষণ দেখা যাবে।
                 </p>
               </div>
             </div>
 
+            <!-- 3. সবচেয়ে বেশি লক্ষণ -->
             <div class="card mb-4">
               <div class="flex-between">
                 <h3 class="font-bold">সবচেয়ে বেশি লক্ষণ</h3>
@@ -714,14 +724,15 @@
               <div id="empty-chart-symptom" class="empty-chart-state">
                 <span class="text-3xl mb-2">🤕</span>
                 <p class="text-muted text-sm text-center">
-                  বিশ্লেষণের জন্য কিছু লক্ষণ লগ করুন।
+                  🌸 কিছু লক্ষণ লগ করলে এখানে তোমার সবচেয়ে বেশি লক্ষণগুলো দেখা যাবে।
                 </p>
               </div>
             </div>
 
+            <!-- 4. মেজাজের ধরন -->
             <div class="card mb-4">
               <div class="flex-between">
-                <h3 class="font-bold">মেজাজ বণ্টন</h3>
+                <h3 class="font-bold">মেজাজের ধরন</h3>
                 <span class="text-xs text-muted">বিতরণ</span>
               </div>
               <div
@@ -734,19 +745,35 @@
               <div id="empty-chart-mood" class="empty-chart-state">
                 <span class="text-3xl mb-2">🎭</span>
                 <p class="text-muted text-sm text-center">
-                  বিশ্লেষণের জন্য আপনার মেজাজ লগ করুন।
+                  🌸 কয়েকদিনের মেজাজ লগ করলে এখানে তোমার প্যাটার্ন দেখা যাবে।
                 </p>
               </div>
             </div>
 
-            <!-- Mood Timeline (Date-by-date emotional history) -->
+            <!-- 7. স্মার্ট স্বাস্থ্য বিশ্লেষণ (Canonical Single Section) -->
+            <div class="card mb-4" id="smart-health-insight-wrapper">
+              <div class="flex-between">
+                <h3 class="font-bold">🧠 স্মার্ট স্বাস্থ্য বিশ্লেষণ</h3>
+                <span class="text-xs text-muted">প্যাটার্ন ও অন্তর্দৃষ্টি</span>
+              </div>
+              <div id="smart-insights-container" class="insights-container mt-4">
+                <div class="empty-insight-state">
+                  <span class="text-3xl mb-2">🌸</span>
+                  <p class="text-muted text-sm text-center">
+                    🌸 এই বিশ্লেষণটা দেখানোর জন্য আরও কিছুদিনের তথ্য দরকার।
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <!-- 8. মুড টাইমলাইন (Date-by-date emotional history) -->
             <div class="card mb-4">
               <div class="flex-between mb-3">
-                <h3 class="font-bold">মেজাজের সময়রেখা</h3>
-                <span class="text-xs text-muted">সাম্প্রতিক লগ</span>
+                <h3 class="font-bold">মুড টাইমলাইন</h3>
+                <span class="text-xs text-muted">তারিখভিত্তিক ইতিহাস</span>
               </div>
-              <div id="analytics-mood-timeline" class="mood-timeline" style="display: flex; gap: 0.75rem; overflow-x: auto; padding-bottom: 0.5rem; scrollbar-width: none;">
-                <p class="text-muted text-sm text-center w-full">লগ করার পর মেজাজের সময়রেখা দেখা যাবে</p>
+              <div id="analytics-mood-timeline" class="mood-timeline" style="display: flex; flex-direction: column; gap: 0.75rem;">
+                <p class="text-muted text-sm text-center w-full">🌸 লগ করার পর মেজাজের সময়রেখা এখানে দেখাবে।</p>
               </div>
             </div>
 
@@ -1160,7 +1187,7 @@
             <h3 id="confirm-title" style="text-align: center; color: var(--text-main); margin-bottom: 0.5rem; font-size: 1.25rem;">নিশ্চিত করুন</h3>
             <p id="confirm-msg" style="text-align: center; color: var(--text-muted); font-size: 0.95rem; margin-bottom: 1.5rem; line-height: 1.5;">আপনি কি নিশ্চিত?</p>
             <div style="display: flex; gap: 1rem;">
-              <button class="btn" style="flex: 1; background: rgba(0,0,0,0.05); color: var(--text-main);" onclick="app.closeConfirm()">বাতিল</button>
+              <button id="confirm-cancel-btn" class="btn" style="flex: 1; background: rgba(0,0,0,0.05); color: var(--text-main);" onclick="app.closeConfirm()">বাতিল</button>
               <button id="confirm-action-btn" class="btn" style="flex: 1; background: var(--primary); color: white;">নিশ্চিত করুন</button>
             </div>
           </div>
