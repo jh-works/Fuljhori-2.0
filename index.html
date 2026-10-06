@@ -7,6 +7,9 @@
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
     />
     <title>ফুলঝরি – পিরিয়ড ট্র্যাকার</title>
+    <meta name="description" content="নিজের শরীর চেনো, নিজেকে ভালো রাখো 🌸 - ফুলঝরি পিরিয়ড ট্র্যাকার" />
+    <meta property="og:title" content="ফুলঝরি – পিরিয়ড ট্র্যাকার" />
+    <meta property="og:description" content="নিজের শরীর চেনো, নিজেকে ভালো রাখো 🌸" />
     <link rel="stylesheet" href="/src/style.css" />
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link rel="manifest" href="/manifest.json" />
@@ -14,11 +17,14 @@
     <link rel="apple-touch-icon" href="/icon.svg" />
     <script>
       try {
-        const settings = JSON.parse(localStorage.getItem('fz_settings'));
-        let t = settings?.theme || 'rose-bloom';
-        if (t === 'light') t = 'rose-bloom';
-        if (t === 'dark') t = 'night-bloom';
-        document.documentElement.setAttribute('data-theme', t);
+        const settings = JSON.parse(localStorage.getItem('fz_settings') || '{}');
+        let mode = settings.displayMode || 'light';
+        let theme = settings.colorTheme || settings.theme || 'rose-bloom';
+        if (theme === 'light') { mode = 'light'; theme = 'rose-bloom'; }
+        if (theme === 'dark') { mode = 'dark'; theme = 'night-bloom'; }
+        document.documentElement.setAttribute('data-display-mode', mode);
+        document.documentElement.setAttribute('data-color-theme', theme);
+        document.documentElement.setAttribute('data-theme', theme);
       } catch (e) {}
     </script>
   </head>
@@ -241,6 +247,7 @@
             </div>
           </header>
           <div class="scroll-content">
+            <!-- 1. Cycle Ring -->
             <div class="cycle-ring-container">
               <div class="cycle-ring" id="cycle-ring">
                 <svg class="ring-svg" viewBox="0 0 100 100">
@@ -256,77 +263,69 @@
                 <div class="ring-content">
                   <p class="text-sm text-muted">সাইকেল</p>
                   <h3 id="ring-day-num">দিন ১২</h3>
-                  <div class="phase-badge" id="ring-phase-badge">ফলিকুলার</div>
+                  <div class="phase-badge" id="ring-phase-badge">ফলিকুলার পর্যায়</div>
                 </div>
               </div>
             </div>
 
+            <!-- 2. Cycle Information Chips -->
             <div class="info-chips mt-4">
               <div class="chip card" style="flex-direction: column; text-align: center; gap: 0.25rem;">
                 <span class="icon">🩸</span>
                 <small>পরবর্তী পিরিয়ড</small>
-                <strong id="chip-next-period">২৮ মে</strong>
+                <strong id="chip-next-period">আর ৫ দিন</strong>
               </div>
               <div class="chip card" style="flex-direction: column; text-align: center; gap: 0.25rem;">
                 <span class="icon">🔄</span>
-                <small>সাইকেল</small>
+                <small>সাইকেল দৈর্ঘ্য</small>
                 <strong id="chip-cycle-length">২৮ দিন</strong>
               </div>
               <div class="chip card" style="flex-direction: column; text-align: center; gap: 0.25rem;">
                 <span class="icon">💧</span>
-                <small>পিরিয়ড</small>
+                <small>পিরিয়ড স্থায়িত্ব</small>
                 <strong id="chip-period-length">৫ দিন</strong>
               </div>
             </div>
 
+            <!-- 3. Phase Care Tip -->
             <div class="card mt-4" style="display: flex; align-items: center; gap: 1rem; padding: 1.25rem; background: radial-gradient(circle at top right, color-mix(in srgb, var(--primary) 10%, transparent), transparent), var(--card); border: none; box-shadow: 0 4px 20px rgba(0,0,0,0.02); border-radius: 20px; transition: opacity 0.3s;" id="home-phase-card">
               <div id="home-phase-icon" style="font-size: 1.75rem; animation: float 3s ease-in-out infinite;">✨</div>
               <div>
-                <p id="home-advice" style="font-size: 0.95rem; font-weight: 500; line-height: 1.4; color: var(--text);">আজ একটু রেস্ট নিলে ভালো লাগতে পারে 💕</p>
+                <p id="home-advice" style="font-size: 0.95rem; font-weight: 500; line-height: 1.45; color: var(--text-main); margin: 0;">আজ একটু রেস্ট নিলে ভালো লাগতে পারে 💕</p>
               </div>
             </div>
 
-            <!-- Home Cycle Analysis Insight -->
-            <div id="home-cycle-analysis-card" style="display: none; align-items: center; gap: 0.75rem; padding: 1rem; margin-top: 1rem; border-radius: 16px; background: color-mix(in srgb, var(--primary) 5%, transparent); border: 1px solid color-mix(in srgb, var(--primary) 20%, transparent); animation: fadeUp 0.4s ease-out;">
-              <span id="home-cycle-icon" style="font-size: 1.5rem;">🌿</span>
-              <p id="home-cycle-text" style="font-size: 0.9rem; font-weight: 500; color: var(--text); margin: 0;">তোমার সাইকেল মোটামুটি নিয়মিত</p>
-            </div>
-
-            <div id="home-wellness-banner" class="mt-4" onclick="app.openWellness()" style="position: relative; padding: 1.5rem; border-radius: 24px; background: linear-gradient(135deg, color-mix(in srgb, var(--secondary) 15%, var(--bg)) 0%, var(--bg) 100%); cursor: pointer; overflow: hidden; border: 1px solid var(--border); box-shadow: 0 8px 24px rgba(0,0,0,0.05); transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);">
-              <div style="position: absolute; right: -20px; top: -30px; width: 120px; height: 120px; background: radial-gradient(circle, color-mix(in srgb, var(--primary) 15%, transparent) 0%, transparent 70%); border-radius: 50%;"></div>
-              <div style="position: absolute; right: 30px; bottom: -30px; width: 100px; height: 100px; background: radial-gradient(circle, color-mix(in srgb, var(--secondary) 25%, transparent) 0%, transparent 70%); border-radius: 50%;"></div>
-              <div style="position: relative; z-index: 1;">
-                <h4 id="home-wellness-title" style="font-size: 1.15rem; color: var(--primary); font-weight: 600; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem;">🌿 নিজের একটু যত্ন নাও</h4>
-                <p id="home-wellness-subtitle" style="font-size: 0.95rem; line-height: 1.5; opacity: 0.85; max-width: 85%; margin-bottom: 1.25rem;">আজ শরীরকে একটু আরাম দাও। বেশি চাপ নিও ঘাট আজ।</p>
-                <div style="display: flex; align-items: center; justify-content: space-between;">
-                  <small style="font-size: 0.8rem; font-weight: 600; color: var(--primary); opacity: 0.8; background: color-mix(in srgb, var(--primary) 15%, transparent); padding: 6px 14px; border-radius: 20px;">চাপ দিলে বিস্তারিত দেখাবে</small>
-                  <div style="width: 32px; height: 32px; background: var(--card); border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 12px rgba(0,0,0,0.1); color: var(--primary);">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                      <polyline points="9 18 15 12 9 6"></polyline>
-                    </svg>
-                  </div>
-                </div>
+            <!-- 4. স্বাস্থ্য ইনসাইট (Lightweight Health Insights) -->
+            <div class="mt-5 mb-2">
+              <div style="padding: 0 0.5rem; margin-bottom: 0.75rem;">
+                <h4 style="font-size: 1.15rem; display: flex; align-items: center; gap: 0.5rem; margin: 0; font-weight: 600;">🌸 স্বাস্থ্য ইনসাইট</h4>
+                <small class="text-muted" style="font-size: 0.8rem; margin-top: 4px; display: block;">দৈনিক সংক্ষেপ ও হালকা পরামর্শ</small>
+              </div>
+              <div id="home-insights" class="insights-row" style="display: flex; gap: 0.75rem; overflow-x: auto; padding: 0.25rem 0.5rem 0.75rem 0.5rem; margin: 0 -0.5rem; scroll-snap-type: x mandatory; scrollbar-width: none;">
+                <!-- dynamic content populated by JS -->
               </div>
             </div>
 
-            <div class="streak-card card mt-4" style="background: linear-gradient(135deg, color-mix(in srgb, var(--primary) 10%, transparent) 0%, color-mix(in srgb, var(--secondary) 10%, transparent) 100%); border: 1px solid color-mix(in srgb, var(--primary) 15%, transparent);">
+            <!-- 5. Logging Streak -->
+            <div class="streak-card card mt-4" id="home-streak-card" style="background: linear-gradient(135deg, color-mix(in srgb, var(--primary) 10%, transparent) 0%, color-mix(in srgb, var(--secondary) 10%, transparent) 100%); border: 1px solid color-mix(in srgb, var(--primary) 15%, transparent);">
               <div class="flex-between">
                 <div>
-                  <h4 style="font-size: 1.1rem; display: flex; align-items: center; gap: 0.5rem;"><span class="flame-icon">🔥</span> দারুণ করছো!</h4>
-                  <p class="text-sm text-muted mt-1">তুমি <strong class="text-primary" id="streak-current">৫ দিন</strong> ধরে লগ করছো!</p>
+                  <h4 style="font-size: 1.05rem; display: flex; align-items: center; gap: 0.5rem; margin: 0;" id="streak-title"><span class="flame-icon">🔥</span> দারুণ করছো!</h4>
+                  <p class="text-sm text-muted mt-1 mb-0" id="streak-msg">তুমি <strong class="text-primary" id="streak-current">০ দিন</strong> ধরে লগ করছো!</p>
                 </div>
                 <div style="text-align: right;">
                   <small class="text-muted">সর্বোচ্চ</small>
-                  <div style="font-weight: 600; font-size: 1.1rem;" id="streak-longest">১২ দিন</div>
+                  <div style="font-weight: 600; font-size: 1.05rem;" id="streak-longest">০ দিন</div>
                 </div>
               </div>
             </div>
 
-            <div class="card mt-4 quick-log-card" onclick="app.switchTab('log')" style="background: linear-gradient(135deg, var(--primary), var(--accent)); color: white; cursor: pointer; transition: transform 0.2s, box-shadow 0.2s; box-shadow: 0 4px 15px rgba(255, 107, 158, 0.3);">
+            <!-- 6. Today's Log Shortcut -->
+            <div class="card mt-4 quick-log-card" id="home-quick-log-btn" onclick="app.openTodayLog()" style="background: linear-gradient(135deg, var(--primary), var(--accent)); color: white; cursor: pointer; transition: transform 0.2s, box-shadow 0.2s; box-shadow: 0 4px 15px rgba(255, 107, 158, 0.3);">
               <div class="flex-between" style="padding: 0.5rem 0;">
-                <h4 style="font-size: 1.1rem; font-weight: 600; color: white;">আজকের তথ্য যোগ করো ✏️</h4>
+                <h4 style="font-size: 1.1rem; font-weight: 600; color: white; margin: 0;" id="quick-log-text">আজকের তথ্য যোগ করো ✏️</h4>
                 <div style="background: rgba(255,255,255,0.2); padding: 8px; border-radius: 50%; display: flex; align-items: center; justify-content: center;">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                     <line x1="12" y1="5" x2="12" y2="19"></line>
                     <line x1="5" y1="12" x2="19" y2="12"></line>
                   </svg>
@@ -334,30 +333,20 @@
               </div>
             </div>
 
-            <div class="card mt-4 mb-4">
-              <div class="flex-between mb-3">
-                <h4>সাম্প্রতিক মেজাজ</h4>
-                <small class="text-muted" style="font-size: 0.75rem;">শেষ ৫ দিন</small>
-              </div>
-              <div class="mood-timeline" style="display: flex; gap: 0.5rem; justify-content: space-between; overflow-x: auto; padding-bottom: 0.5rem; scrollbar-width: none;">
-                <div style="text-align: center;"><div style="font-size: 1.75rem;">😊</div><small class="text-muted" style="font-size: 0.7rem; display: block; margin-top: 4px;">আজ</small></div>
-                <div style="text-align: center;"><div style="font-size: 1.75rem;">😐</div><small class="text-muted" style="font-size: 0.7rem; display: block; margin-top: 4px;">কাল</small></div>
-                <div style="text-align: center;"><div style="font-size: 1.75rem;">😴</div><small class="text-muted" style="font-size: 0.7rem; display: block; margin-top: 4px;">১৬ মে</small></div>
-                <div style="text-align: center;"><div style="font-size: 1.75rem;">😢</div><small class="text-muted" style="font-size: 0.7rem; display: block; margin-top: 4px;">১৫ মে</small></div>
-                <div style="text-align: center;"><div style="font-size: 1.75rem;">😊</div><small class="text-muted" style="font-size: 0.7rem; display: block; margin-top: 4px;">১৪ মে</small></div>
-              </div>
-            </div>
-
-            <div class="mb-4 mt-6">
-              <div style="padding: 0 0.5rem; margin-bottom: 1rem;">
-                <h4 style="font-size: 1.15rem; display: flex; align-items: center; gap: 0.5rem; margin: 0;">🌸 সাম্প্রতিক পরিবর্তন</h4>
-                <small class="text-muted" style="font-size: 0.8rem; margin-top: 4px; display: block;">তোমার সাম্প্রতিক লগ থেকে</small>
-              </div>
-              <div id="home-insights" class="insights-row" style="display: flex; gap: 0.75rem; overflow-x: auto; padding: 0.25rem 0.5rem 1rem 0.5rem; margin: 0 -0.5rem; scroll-snap-type: x mandatory; scrollbar-width: none;">
-                <!-- dynamic content populated by JS -->
-                <div class="card" style="min-width: 200px; flex: 0 0 auto; scroll-snap-align: start; padding: 1rem; border-radius: 20px; border: 1px solid color-mix(in srgb, var(--primary) 10%, transparent); background: linear-gradient(135deg, color-mix(in srgb, var(--primary) 3%, transparent), color-mix(in srgb, var(--secondary) 1%, transparent));">
-                  <span style="font-size: 1.25rem; margin-bottom: 0.5rem; display: block;">🌸</span>
-                  <p style="font-size: 0.9rem; font-weight: 500; line-height: 1.4; color: var(--text);">আরও কিছুদিন লগ করলে এখানে তোমার প্যাটার্ন দেখাবে</p>
+            <!-- 7. Wellness / Education Gateway -->
+            <div id="home-wellness-banner" class="mt-4 mb-4" onclick="app.openWellness()" style="position: relative; padding: 1.35rem; border-radius: 24px; background: linear-gradient(135deg, color-mix(in srgb, var(--secondary) 15%, var(--bg)) 0%, var(--bg) 100%); cursor: pointer; overflow: hidden; border: 1px solid var(--border); box-shadow: 0 6px 20px rgba(0,0,0,0.04); transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);">
+              <div style="position: absolute; right: -20px; top: -30px; width: 120px; height: 120px; background: radial-gradient(circle, color-mix(in srgb, var(--primary) 15%, transparent) 0%, transparent 70%); border-radius: 50%;"></div>
+              <div style="position: absolute; right: 30px; bottom: -30px; width: 100px; height: 100px; background: radial-gradient(circle, color-mix(in srgb, var(--secondary) 25%, transparent) 0%, transparent 70%); border-radius: 50%;"></div>
+              <div style="position: relative; z-index: 1;">
+                <h4 id="home-wellness-title" style="font-size: 1.15rem; color: var(--primary); font-weight: 600; margin-bottom: 0.35rem; display: flex; align-items: center; gap: 0.5rem;">🌿 শরীর সম্পর্কে জানো</h4>
+                <p id="home-wellness-subtitle" style="font-size: 0.9rem; line-height: 1.45; color: var(--text-muted); max-width: 88%; margin-bottom: 1rem;">মাসিক স্বাস্থ্য, পুষ্টি, ঘুম ও যত্ন নিয়ে দরকারি পরামর্শ</p>
+                <div style="display: flex; align-items: center; justify-content: space-between;">
+                  <small style="font-size: 0.8rem; font-weight: 600; color: var(--primary); background: color-mix(in srgb, var(--primary) 15%, transparent); padding: 5px 12px; border-radius: 20px;">বিস্তারিত পড়তে চাপো</small>
+                  <div style="width: 32px; height: 32px; background: var(--card); border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 12px rgba(0,0,0,0.1); color: var(--primary);">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                      <polyline points="9 18 15 12 9 6"></polyline>
+                    </svg>
+                  </div>
                 </div>
               </div>
             </div>
@@ -387,11 +376,16 @@
                 <div class="cal-day-name">সোম</div>
                 <div class="cal-day-name">মঙ্গল</div>
                 <div class="cal-day-name">বুধ</div>
-                <div class="cal-day-name">বৃহঃ</div>
+                <div class="cal-day-name">বৃহ</div>
                 <div class="cal-day-name">শুক্র</div>
                 <div class="cal-day-name">শনি</div>
               </div>
               <div id="cal-days" class="cal-days-grid mt-2"></div>
+            </div>
+
+            <!-- Calendar Insufficient Data Friendly Note -->
+            <div id="cal-no-period-msg" class="text-center text-sm text-muted mt-3 mb-1" style="display: none; padding: 0.75rem 1rem; background: color-mix(in srgb, var(--primary) 5%, transparent); border-radius: 14px; border: 1px solid color-mix(in srgb, var(--primary) 15%, transparent);">
+              🌸 পিরিয়ডের তথ্য যোগ করলে তোমার সাইকেল ক্যালেন্ডারে আরও সুন্দরভাবে দেখা যাবে।
             </div>
 
             <div class="card mt-4" style="background: linear-gradient(135deg, color-mix(in srgb, var(--primary) 4%, transparent), transparent); border: 1px solid color-mix(in srgb, var(--primary) 10%, transparent); box-shadow: none;">
@@ -399,15 +393,23 @@
               <div class="mt-2 text-sm" style="display: flex; gap: 8px; flex-wrap: wrap;">
                 <div style="display: flex; align-items: center; gap: 6px; background: var(--card); padding: 6px 12px; border-radius: 20px; border: 1px solid color-mix(in srgb, var(--primary) 20%, transparent); box-shadow: 0 2px 8px rgba(0,0,0,0.02);">
                   <div style="width: 10px; height: 10px; border-radius: 50%; background-color: var(--primary);"></div>
-                  <span style="font-weight: 500; font-size: 0.85rem; color: var(--text-main)">পিরিয়ড</span>
+                  <span style="font-weight: 500; font-size: 0.85rem; color: var(--text-main)">🔴 পিরিয়ড</span>
+                </div>
+                <div style="display: flex; align-items: center; gap: 6px; background: var(--card); padding: 6px 12px; border-radius: 20px; border: 1.5px dashed var(--primary); box-shadow: 0 2px 8px rgba(0,0,0,0.02);">
+                  <div style="width: 10px; height: 10px; border-radius: 50%; background-color: color-mix(in srgb, var(--primary) 40%, transparent);"></div>
+                  <span style="font-weight: 500; font-size: 0.85rem; color: var(--text-main)">🩷 সম্ভাব্য পিরিয়ড</span>
+                </div>
+                <div style="display: flex; align-items: center; gap: 6px; background: var(--card); padding: 6px 12px; border-radius: 20px; border: 1px solid color-mix(in srgb, var(--accent) 20%, transparent); box-shadow: 0 2px 8px rgba(0,0,0,0.02);">
+                  <div style="width: 10px; height: 10px; border-radius: 50%; background-color: var(--accent);"></div>
+                  <span style="font-weight: 500; font-size: 0.85rem; color: var(--text-main)">🩵 ডিম্বস্ফোটন</span>
                 </div>
                 <div style="display: flex; align-items: center; gap: 6px; background: var(--card); padding: 6px 12px; border-radius: 20px; border: 1px solid color-mix(in srgb, var(--secondary) 20%, transparent); box-shadow: 0 2px 8px rgba(0,0,0,0.02);">
                   <div style="width: 10px; height: 10px; border-radius: 50%; background-color: var(--secondary);"></div>
-                  <span style="font-weight: 500; font-size: 0.85rem; color: var(--text-main)">উর্বর সময়</span>
+                  <span style="font-weight: 500; font-size: 0.85rem; color: var(--text-main)">🟡 ফার্টাইল সময়</span>
                 </div>
-                <div style="display: flex; align-items: center; gap: 6px; background: var(--card); padding: 6px 12px; border-radius: 20px; border: 1px solid color-mix(in srgb, var(--accent) 20%, transparent); box-shadow: 0 2px 8px rgba(0,0,0,0.02);">
-                  <div style="width: 10px; height: 10px; border-radius: 50%; background-color: var(--accent); box-shadow: 0 0 0 2px var(--bg);"></div>
-                  <span style="font-weight: 500; font-size: 0.85rem; color: var(--text-main)">ডিম্বস্ফোটন</span>
+                <div style="display: flex; align-items: center; gap: 6px; background: var(--card); padding: 6px 12px; border-radius: 20px; border: 1px solid var(--border); box-shadow: 0 2px 8px rgba(0,0,0,0.02);">
+                  <div style="width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--text-main);"></div>
+                  <span style="font-weight: 500; font-size: 0.85rem; color: var(--text-main)">⭕ আজ</span>
                 </div>
               </div>
             </div>
@@ -620,35 +622,17 @@
               </div>
             </div>
 
-            <!-- Cycle Analysis Engine -->
-            <div class="card mb-4" id="analytics-cycle-analysis-wrapper">
+            <!-- Smart Health Analysis (Canonical Single Section) -->
+            <div class="card mb-4" id="smart-health-insight-wrapper">
               <div class="flex-between">
-                <h3 class="font-bold">সাইকেল বিশ্লেষণ</h3>
-                <span class="text-xs text-muted">পর্যাপ্ততা</span>
+                <h3 class="font-bold">🧠 স্মার্ট স্বাস্থ্য বিশ্লেষণ</h3>
+                <span class="text-xs text-muted">প্যাটার্ন ও ভ্যারিয়েবিলিটি</span>
               </div>
-              <div id="analytics-cycle-analysis-container" class="mt-4">
+              <div id="smart-insights-container" class="insights-container mt-4">
                 <div class="empty-insight-state">
-                  <span class="text-3xl mb-2">📊</span>
+                  <span class="text-3xl mb-2">🌸</span>
                   <p class="text-muted text-sm text-center">
-                    আরও তথ্য যোগ করলে বিশ্লেষণ দেখা যাবে
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div class="card mb-4" id="health-insights-wrapper">
-              <div class="flex-between">
-                <h3 class="font-bold">হেলথ ইনসাইটস</h3>
-                <span class="text-xs text-muted">প্যাটার্ন</span>
-              </div>
-              <div
-                id="health-insights-container"
-                class="insights-container mt-4"
-              >
-                <div class="empty-insight-state">
-                  <span class="text-3xl mb-2">✨</span>
-                  <p class="text-muted text-sm text-center">
-                    পর্যাপ্ত ডেটা নেই। কিছু দিন লগ করুন নতুন ইনসাইটস পেতে।
+                    আরও কিছু তথ্য যোগ করলে ব্যক্তিগত গভীর বিশ্লেষণ দেখা যাবে
                   </p>
                 </div>
               </div>
@@ -737,7 +721,7 @@
 
             <div class="card mb-4">
               <div class="flex-between">
-                <h3 class="font-bold">মেজাজ</h3>
+                <h3 class="font-bold">মেজাজ বণ্টন</h3>
                 <span class="text-xs text-muted">বিতরণ</span>
               </div>
               <div
@@ -755,22 +739,16 @@
               </div>
             </div>
 
-            <!-- Smart Health Insights Start -->
-            <div class="card mb-4" id="smart-health-insight-wrapper">
-              <div class="flex-between">
-                <h3 class="font-bold">🧠 স্মার্ট স্বাস্থ্য বিশ্লেষণ</h3>
-                <span class="text-xs text-muted">প্যাটার্ন</span>
+            <!-- Mood Timeline (Date-by-date emotional history) -->
+            <div class="card mb-4">
+              <div class="flex-between mb-3">
+                <h3 class="font-bold">মেজাজের সময়রেখা</h3>
+                <span class="text-xs text-muted">সাম্প্রতিক লগ</span>
               </div>
-              <div id="smart-insights-container" class="insights-container mt-4">
-                <div class="empty-insight-state">
-                  <span class="text-3xl mb-2">🌸</span>
-                  <p class="text-muted text-sm text-center">
-                    আরও কিছু তথ্য যোগ করলে ব্যক্তিগত বিশ্লেষণ দেখা যাবে
-                  </p>
-                </div>
+              <div id="analytics-mood-timeline" class="mood-timeline" style="display: flex; gap: 0.75rem; overflow-x: auto; padding-bottom: 0.5rem; scrollbar-width: none;">
+                <p class="text-muted text-sm text-center w-full">লগ করার পর মেজাজের সময়রেখা দেখা যাবে</p>
               </div>
             </div>
-            <!-- Smart Health Insights End -->
 
           </div>
         </div>
@@ -792,43 +770,61 @@
                   onchange="app.saveSettingsProfile()"
                 />
               </div>
+              <div class="form-group mt-3">
+                <label>বয়স</label>
+                <input
+                  type="number"
+                  id="settings-age"
+                  min="10"
+                  max="60"
+                  placeholder="যেমন: ২০"
+                  onchange="app.saveSettingsProfile()"
+                />
+              </div>
             </div>
 
             <div class="card mt-4">
-              <h3>থিম</h3>
-              <div class="theme-options mt-4" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem;">
+              <h3>প্রদর্শন মোড (Display Mode)</h3>
+              <div class="mode-options mt-3" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem;">
+                <button type="button" class="btn mode-btn" onclick="app.setDisplayMode('light')" id="mode-btn-light" style="padding: 0.6rem 0.25rem; font-size: 0.85rem; border: 1px solid var(--border); border-radius: 12px; background: var(--card); color: var(--text-main); font-weight: 500;">☀️ লাইট</button>
+                <button type="button" class="btn mode-btn" onclick="app.setDisplayMode('dark')" id="mode-btn-dark" style="padding: 0.6rem 0.25rem; font-size: 0.85rem; border: 1px solid var(--border); border-radius: 12px; background: var(--card); color: var(--text-main); font-weight: 500;">🌙 ডার্ক</button>
+                <button type="button" class="btn mode-btn" onclick="app.setDisplayMode('amoled')" id="mode-btn-amoled" style="padding: 0.6rem 0.25rem; font-size: 0.85rem; border: 1px solid var(--border); border-radius: 12px; background: var(--card); color: var(--text-main); font-weight: 500;">🖤 অ্যামোলেড</button>
+              </div>
+
+              <h3 class="mt-4">রঙের থিম (Color Theme)</h3>
+              <div class="theme-options mt-3" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.75rem;">
                 <!-- Rose Bloom -->
-                <div class="theme-card" onclick="app.setTheme('rose-bloom')" id="theme-card-rose-bloom" style="border: 2px solid transparent; border-radius: 12px; padding: 1rem; cursor: pointer; text-align: center; background: rgba(0,0,0,0.02); transition: all 0.3s ease;">
-                  <div style="width: 40px; height: 40px; border-radius: 50%; background: linear-gradient(135deg, #E75480, #F9A8C9); margin: 0 auto 0.5rem; box-shadow: 0 4px 10px rgba(231,84,128,0.2);"></div>
-                  <span style="font-size: 0.85rem; font-weight: 500;">রোজ ব্লুম</span>
+                <div class="theme-card" onclick="app.setColorTheme('rose-bloom')" id="theme-card-rose-bloom" style="border: 2px solid transparent; border-radius: 14px; padding: 0.85rem; cursor: pointer; text-align: center; background: rgba(0,0,0,0.02); transition: all 0.3s ease;">
+                  <div style="width: 36px; height: 36px; border-radius: 50%; background: linear-gradient(135deg, #E75480, #F9A8C9); margin: 0 auto 0.5rem; box-shadow: 0 4px 10px rgba(231,84,128,0.25);"></div>
+                  <span style="font-size: 0.85rem; font-weight: 600;">রোজ ব্লুম</span>
                 </div>
                 <!-- Lavender Dream -->
-                <div class="theme-card" onclick="app.setTheme('lavender-dream')" id="theme-card-lavender-dream" style="border: 2px solid transparent; border-radius: 12px; padding: 1rem; cursor: pointer; text-align: center; background: rgba(0,0,0,0.02); transition: all 0.3s ease;">
-                  <div style="width: 40px; height: 40px; border-radius: 50%; background: linear-gradient(135deg, #9B6B9E, #D4BEE4); margin: 0 auto 0.5rem; box-shadow: 0 4px 10px rgba(155,107,158,0.2);"></div>
-                  <span style="font-size: 0.85rem; font-weight: 500;">ল্যাভেন্ডার</span>
+                <div class="theme-card" onclick="app.setColorTheme('lavender-dream')" id="theme-card-lavender-dream" style="border: 2px solid transparent; border-radius: 14px; padding: 0.85rem; cursor: pointer; text-align: center; background: rgba(0,0,0,0.02); transition: all 0.3s ease;">
+                  <div style="width: 36px; height: 36px; border-radius: 50%; background: linear-gradient(135deg, #9B6B9E, #D4BEE4); margin: 0 auto 0.5rem; box-shadow: 0 4px 10px rgba(155,107,158,0.25);"></div>
+                  <span style="font-size: 0.85rem; font-weight: 600;">ল্যাভেন্ডার</span>
                 </div>
                 <!-- Peach Glow -->
-                <div class="theme-card" onclick="app.setTheme('peach-glow')" id="theme-card-peach-glow" style="border: 2px solid transparent; border-radius: 12px; padding: 1rem; cursor: pointer; text-align: center; background: rgba(0,0,0,0.02); transition: all 0.3s ease;">
-                  <div style="width: 40px; height: 40px; border-radius: 50%; background: linear-gradient(135deg, #F08A5D, #FFD3B6); margin: 0 auto 0.5rem; box-shadow: 0 4px 10px rgba(240,138,93,0.2);"></div>
-                  <span style="font-size: 0.85rem; font-weight: 500;">পিচ গ্লো</span>
+                <div class="theme-card" onclick="app.setColorTheme('peach-glow')" id="theme-card-peach-glow" style="border: 2px solid transparent; border-radius: 14px; padding: 0.85rem; cursor: pointer; text-align: center; background: rgba(0,0,0,0.02); transition: all 0.3s ease;">
+                  <div style="width: 36px; height: 36px; border-radius: 50%; background: linear-gradient(135deg, #F08A5D, #FFD3B6); margin: 0 auto 0.5rem; box-shadow: 0 4px 10px rgba(240,138,93,0.25);"></div>
+                  <span style="font-size: 0.85rem; font-weight: 600;">পিচ গ্লো</span>
                 </div>
                 <!-- Night Bloom -->
-                <div class="theme-card" onclick="app.setTheme('night-bloom')" id="theme-card-night-bloom" style="border: 2px solid transparent; border-radius: 12px; padding: 1rem; cursor: pointer; text-align: center; background: rgba(0,0,0,0.02); transition: all 0.3s ease;">
-                  <div style="width: 40px; height: 40px; border-radius: 50%; background: linear-gradient(135deg, #FF7FA5, #0A0A0C); margin: 0 auto 0.5rem; box-shadow: 0 4px 10px rgba(255,127,165,0.2);"></div>
-                  <span style="font-size: 0.85rem; font-weight: 500;">নাইট ব্লুম</span>
+                <div class="theme-card" onclick="app.setColorTheme('night-bloom')" id="theme-card-night-bloom" style="border: 2px solid transparent; border-radius: 14px; padding: 0.85rem; cursor: pointer; text-align: center; background: rgba(0,0,0,0.02); transition: all 0.3s ease;">
+                  <div style="width: 36px; height: 36px; border-radius: 50%; background: linear-gradient(135deg, #FF7FA5, #D81B60); margin: 0 auto 0.5rem; box-shadow: 0 4px 10px rgba(255,127,165,0.25);"></div>
+                  <span style="font-size: 0.85rem; font-weight: 600;">নাইট ব্লুম</span>
                 </div>
               </div>
             </div>
 
-            <div class="card mt-8 mb-4">
+            <div class="card mt-6 mb-4">
               <h3 style="color: var(--primary);">ডেটা ও ব্যাকআপ</h3>
               <div class="mt-4" style="display: flex; flex-direction: column; gap: 0.75rem;">
-                <!-- <button class="btn" style="background: rgba(0,0,0,0.05); color: var(--text-main); width: 100%; border: 1px solid var(--border);" onclick="app.exportData()">ডেটা ব্যাকআপ (Export)</button>
+                <button class="btn" style="background: rgba(0,0,0,0.04); color: var(--text-main); width: 100%; border: 1px solid var(--border);" onclick="app.exportData()">ডেটা ব্যাকআপ সংরক্ষণ (Export) 💾</button>
                 <div style="position: relative;">
                    <input type="file" id="import-file" style="display:none;" accept=".json" onchange="app.importData(event)" />
-                   <button class="btn" style="background: rgba(0,0,0,0.05); color: var(--text-main); width: 100%; border: 1px solid var(--border);" onclick="document.getElementById('import-file').click()">ডেটা রিস্টোর (Import)</button>
-                </div> -->
-                <button class="btn" style="background: rgba(0,0,0,0.05); color: var(--text-main); width: 100%; border: 1px solid var(--border);" onclick="app.confirmAction('reset_settings')">সেটিংস রিসেট করুন</button>
+                   <button class="btn" style="background: rgba(0,0,0,0.04); color: var(--text-main); width: 100%; border: 1px solid var(--border);" onclick="document.getElementById('import-file').click()">ডেটা রিস্টোর করুন (Import) 📥</button>
+                </div>
+                <button class="btn" style="background: rgba(0,0,0,0.04); color: var(--text-main); width: 100%; border: 1px solid var(--border);" onclick="app.confirmAction('reset_settings')">সেটিংস রিসেট করুন</button>
                 <button class="btn" style="background: rgba(255,107,158,0.1); color: var(--primary); width: 100%; border: 1px solid color-mix(in srgb, var(--primary) 20%, transparent);" onclick="app.confirmAction('reset_data')">সব ডেটা মুছে ফেলুন</button>
               </div>
             </div>
@@ -951,6 +947,14 @@
                   onclick="app.markPeriodOngoing()"
                 >
                   🌸 পিরিয়ড চলছে
+                </button>
+                <button
+                  id="edit-log-day-btn"
+                  class="btn w-full mt-3"
+                  style="background: rgba(0,0,0,0.04); color: var(--text-main); font-weight: 500; font-size: 0.95rem; padding: 12px; border-radius: 16px; border: 1px solid var(--border);"
+                  onclick="app.editLogFromCalendar()"
+                >
+                  ✏️ এই দিনের তথ্য যোগ / পরিবর্তন করুন
                 </button>
             </div>
           </div>

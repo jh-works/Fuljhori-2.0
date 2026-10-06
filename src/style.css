@@ -1,52 +1,79 @@
-:root, [data-theme="rose-bloom"] {
-  --primary: #E75480;
-  --secondary: #F9A8C9;
-  --accent: #6B2D5E;
-  --bg: #FFF0F5;
-  --card: #FFFFFF;
-  --text-main: #2D2D2D;
-  --text-muted: #888888;
-  --border: #F0F0F0;
-  --nav-bg: rgba(255, 255, 255, 0.95);
+:root {
   --radius-sm: 8px;
   --radius-md: 16px;
   --radius-lg: 24px;
 }
 
-[data-theme="lavender-dream"] {
+/* Color Palettes */
+:root, [data-color-theme="rose-bloom"], [data-theme="rose-bloom"] {
+  --primary: #E75480;
+  --secondary: #F9A8C9;
+  --accent: #6B2D5E;
+}
+
+[data-color-theme="lavender-dream"], [data-theme="lavender-dream"] {
   --primary: #9B6B9E;
   --secondary: #D4BEE4;
   --accent: #4A306D;
-  --bg: #F4F0F8;
-  --card: #FFFFFF;
-  --text-main: #2D2D3D;
-  --text-muted: #888599;
-  --border: #E8E5EE;
-  --nav-bg: rgba(255, 255, 255, 0.95);
 }
 
-[data-theme="peach-glow"] {
+[data-color-theme="peach-glow"], [data-theme="peach-glow"] {
   --primary: #F08A5D;
   --secondary: #FFD3B6;
   --accent: #B83B5E;
-  --bg: #FFF5F1;
-  --card: #FFFFFF;
-  --text-main: #3D2D2D;
-  --text-muted: #998585;
-  --border: #F0E5E1;
-  --nav-bg: rgba(255, 255, 255, 0.95);
 }
 
-[data-theme="night-bloom"] {
+[data-color-theme="night-bloom"], [data-theme="night-bloom"] {
   --primary: #FF7FA5;
   --secondary: #D81B60;
   --accent: #F48FB1;
-  --bg: #0A0A0C;
-  --card: #16161A;
-  --text-main: #F5F5F5;
-  --text-muted: #AAAAAA;
-  --border: #2A2A2E;
-  --nav-bg: rgba(22, 22, 26, 0.95);
+}
+
+/* Display Modes */
+/* 1. Light Mode (Default) */
+:root, [data-display-mode="light"] {
+  --bg: #FFF0F5;
+  --card: #FFFFFF;
+  --text-main: #2D2D2D;
+  --text-muted: #7A7A7A;
+  --border: #F3E8EE;
+  --nav-bg: rgba(255, 255, 255, 0.95);
+}
+
+[data-color-theme="lavender-dream"][data-display-mode="light"] {
+  --bg: #F5F0F8;
+  --border: #ECE5F2;
+}
+
+[data-color-theme="peach-glow"][data-display-mode="light"] {
+  --bg: #FFF5F1;
+  --border: #F3E8E2;
+}
+
+[data-color-theme="night-bloom"][data-display-mode="light"] {
+  --bg: #F8F0F3;
+  --border: #EFE4E8;
+}
+
+/* 2. Dark Mode */
+[data-display-mode="dark"],
+[data-theme="night-bloom"]:not([data-display-mode="light"]):not([data-display-mode="amoled"]) {
+  --bg: #141418;
+  --card: #1E1E24;
+  --text-main: #F3F3F6;
+  --text-muted: #9E9EA7;
+  --border: #2C2C34;
+  --nav-bg: rgba(30, 30, 36, 0.95);
+}
+
+/* 3. AMOLED Mode (True Black) */
+[data-display-mode="amoled"] {
+  --bg: #000000;
+  --card: #0A0A0C;
+  --text-main: #FFFFFF;
+  --text-muted: #8E8E93;
+  --border: #1C1C1E;
+  --nav-bg: rgba(0, 0, 0, 0.98);
 }
 
 * {
@@ -299,7 +326,7 @@ body {
   position: relative;
   display: flex; justify-content: center; align-items: center;
   border-radius: 50%;
-  animation: ring-breathe 4s ease-in-out infinite;
+  animation: ring-heartbeat 3s ease-in-out infinite;
 }
 .ring-svg {
   position: absolute;
@@ -395,20 +422,38 @@ body {
 }
 .cal-day-cell.period {
   background: var(--primary);
-  color: white;
+  color: #FFFFFF;
 }
 .cal-day-cell.fertile {
   background: var(--secondary);
-  color: white;
+  color: #2D2D2D;
+  font-weight: 500;
+}
+[data-display-mode="dark"] .cal-day-cell.fertile,
+[data-display-mode="amoled"] .cal-day-cell.fertile,
+[data-theme="night-bloom"] .cal-day-cell.fertile {
+  color: #141418;
+  font-weight: 600;
 }
 .cal-day-cell.ovulation {
   background: var(--accent);
-  color: white;
+  color: #FFFFFF;
   border: 2px solid var(--bg);
+  box-shadow: 0 0 0 1px var(--accent);
 }
 .cal-day-cell.today {
   font-weight: bold;
   border: 2px solid var(--text-main);
+}
+.cal-day-cell.predicted-period {
+  background: color-mix(in srgb, var(--primary) 28%, transparent);
+  color: var(--text-main);
+  border: 1.5px dashed var(--primary);
+  font-weight: 500;
+}
+.cal-day-cell.selected {
+  box-shadow: 0 0 0 2px var(--primary);
+  font-weight: 700;
 }
 
 .btn-icon {
@@ -977,23 +1022,23 @@ body {
   to { transform: scale(4); opacity: 0; }
 }
 
-/* Cycle Ring Glow & Breathing */
+/* Cycle Ring Glow & Heartbeat */
 .cycle-ring {
-  animation: ring-breathe 4s ease-in-out infinite;
+  animation: ring-heartbeat 3s ease-in-out infinite;
 }
 .cycle-ring.heartbeat {
-  animation: ring-heartbeat 2s ease-in-out infinite;
-}
-@keyframes ring-breathe {
-  0%, 100% { transform: scale(1); box-shadow: 0 0 15px rgba(0,0,0,0.05); }
-  50% { transform: scale(1.02); box-shadow: 0 0 25px rgba(231, 84, 128, 0.2); }
+  animation: ring-heartbeat 2.5s ease-in-out infinite;
 }
 @keyframes ring-heartbeat {
-  0% { transform: scale(1); box-shadow: 0 0 15px rgba(0,0,0,0.05); }
-  14% { transform: scale(1.04); box-shadow: 0 0 25px rgba(76, 175, 80, 0.3); }
-  28% { transform: scale(1); box-shadow: 0 0 15px rgba(0,0,0,0.05); }
-  42% { transform: scale(1.04); box-shadow: 0 0 25px rgba(76, 175, 80, 0.3); }
-  70%, 100% { transform: scale(1); box-shadow: 0 0 15px rgba(0,0,0,0.05); }
+  0% { box-shadow: 0 0 15px rgba(0,0,0,0.05); }
+  14% { box-shadow: 0 0 25px color-mix(in srgb, var(--primary) 25%, transparent); }
+  28% { box-shadow: 0 0 15px rgba(0,0,0,0.05); }
+  42% { box-shadow: 0 0 25px color-mix(in srgb, var(--primary) 25%, transparent); }
+  70%, 100% { box-shadow: 0 0 15px rgba(0,0,0,0.05); }
+}
+@keyframes ring-breathe {
+  0%, 100% { box-shadow: 0 0 15px rgba(0,0,0,0.05); }
+  50% { box-shadow: 0 0 22px color-mix(in srgb, var(--primary) 20%, transparent); }
 }
 
 /* Success Glow Pulse */
@@ -1297,5 +1342,12 @@ body {
   box-shadow: 0 4px 15px rgba(231, 84, 128, 0.1);
 }
 
-
-
+/* Reduced Motion Accessibility */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
