@@ -11,10 +11,24 @@
     <meta property="og:title" content="ফুলঝরি – পিরিয়ড ট্র্যাকার" />
     <meta property="og:description" content="নিজের শরীর চেনো, নিজেকে ভালো রাখো 🌸" />
     <link rel="stylesheet" href="/src/style.css" />
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="/chart.js"></script>
+    <script>
+      if (typeof Chart === 'undefined') {
+        const cdnScript = document.createElement('script');
+        cdnScript.src = 'https://cdn.jsdelivr.net/npm/chart.js';
+        cdnScript.async = false;
+        document.head.appendChild(cdnScript);
+      }
+    </script>
     <link rel="manifest" href="/manifest.json" />
     <meta name="theme-color" content="#E75480" />
-    <link rel="apple-touch-icon" href="/icon.svg" />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="ফুলঝরি" />
     <script>
       try {
         const settings = JSON.parse(localStorage.getItem('fz_settings') || '{}');
@@ -25,6 +39,11 @@
         document.documentElement.setAttribute('data-display-mode', mode);
         document.documentElement.setAttribute('data-color-theme', theme);
         document.documentElement.setAttribute('data-theme', theme);
+
+        const acc = settings.accessibilityPreferences || settings.accessibility || {};
+        if (acc.largeText) document.documentElement.setAttribute('data-large-text', 'true');
+        if (acc.highContrast) document.documentElement.setAttribute('data-high-contrast', 'true');
+        if (acc.reducedMotion) document.documentElement.setAttribute('data-reduced-motion', 'true');
       } catch (e) {}
     </script>
   </head>
@@ -35,10 +54,9 @@
       <div id="splash-screen" class="splash-screen">
         <div class="splash-content">
           <img
-            src="https://lh3.googleusercontent.com/d/1SXhKtuYCs4M3JOOBAJtNrA144VacZU6Q"
+            src="/logo.png"
             alt="ফুলঝরি লোগো"
             class="splash-logo"
-            referrerpolicy="no-referrer"
             onerror="
               this.onerror = null;
               this.outerHTML =
@@ -798,22 +816,66 @@
                 />
               </div>
               <div class="form-group mt-3">
-                <label>বয়স</label>
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                  <label>বয়স</label>
+                  <span id="settings-age-display" class="text-xs text-muted font-medium"></span>
+                </div>
                 <input
                   type="number"
                   id="settings-age"
                   min="10"
-                  max="60"
+                  max="65"
                   placeholder="যেমন: ২০"
+                  oninput="app.onSettingsAgeInput(this.value)"
                   onchange="app.saveSettingsProfile()"
                 />
+              </div>
+              <div class="form-group mt-3">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                  <label>গড় সাইকেল দৈর্ঘ্য</label>
+                  <span id="settings-cycle-display" class="text-xs text-muted font-medium">২৮ দিন</span>
+                </div>
+                <input
+                  type="range"
+                  id="settings-cycle-length"
+                  min="21"
+                  max="45"
+                  value="28"
+                  style="width: 100%; accent-color: var(--primary);"
+                  oninput="app.onSettingsCycleChange(this.value)"
+                  onchange="app.saveSettingsProfile()"
+                />
+                <div class="flex-between text-xs text-muted mt-1">
+                  <span>২১ দিন</span>
+                  <span>৪৫ দিন</span>
+                </div>
+              </div>
+              <div class="form-group mt-3">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                  <label>গড় পিরিয়ডের দৈর্ঘ্য</label>
+                  <span id="settings-period-display" class="text-xs text-muted font-medium">৫ দিন</span>
+                </div>
+                <input
+                  type="range"
+                  id="settings-period-length"
+                  min="2"
+                  max="10"
+                  value="5"
+                  style="width: 100%; accent-color: var(--primary);"
+                  oninput="app.onSettingsPeriodChange(this.value)"
+                  onchange="app.saveSettingsProfile()"
+                />
+                <div class="flex-between text-xs text-muted mt-1">
+                  <span>২ দিন</span>
+                  <span>১০ দিন</span>
+                </div>
               </div>
             </div>
 
             <div class="card mt-4">
               <h3>প্রদর্শন মোড (Display Mode)</h3>
               <div class="mode-options mt-3" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem;">
-                <button type="button" class="btn mode-btn" onclick="app.setDisplayMode('light')" id="mode-btn-light" style="padding: 0.6rem 0.25rem; font-size: 0.85rem; border: 1px solid var(--border); border-radius: 12px; background: var(--card); color: var(--text-main); font-weight: 500;">☀️ লাইট</button>
+                <button type="button" class="btn mode-btn" onclick="app.setDisplayMode('light')" id="mode-btn-light" style="padding: 0.6rem 0.25rem; font-size: 0.85rem; border: 1px solid var(--border); border-radius: 12px; background: var(--card); color: var(--text-main); font-weight: 500;">☀️ হালকা</button>
                 <button type="button" class="btn mode-btn" onclick="app.setDisplayMode('dark')" id="mode-btn-dark" style="padding: 0.6rem 0.25rem; font-size: 0.85rem; border: 1px solid var(--border); border-radius: 12px; background: var(--card); color: var(--text-main); font-weight: 500;">🌙 ডার্ক</button>
                 <button type="button" class="btn mode-btn" onclick="app.setDisplayMode('amoled')" id="mode-btn-amoled" style="padding: 0.6rem 0.25rem; font-size: 0.85rem; border: 1px solid var(--border); border-radius: 12px; background: var(--card); color: var(--text-main); font-weight: 500;">🖤 অ্যামোলেড</button>
               </div>
@@ -828,7 +890,7 @@
                 <!-- Lavender Dream -->
                 <div class="theme-card" onclick="app.setColorTheme('lavender-dream')" id="theme-card-lavender-dream" style="border: 2px solid transparent; border-radius: 14px; padding: 0.85rem; cursor: pointer; text-align: center; background: rgba(0,0,0,0.02); transition: all 0.3s ease;">
                   <div style="width: 36px; height: 36px; border-radius: 50%; background: linear-gradient(135deg, #9B6B9E, #D4BEE4); margin: 0 auto 0.5rem; box-shadow: 0 4px 10px rgba(155,107,158,0.25);"></div>
-                  <span style="font-size: 0.85rem; font-weight: 600;">ল্যাভেন্ডার</span>
+                  <span style="font-size: 0.85rem; font-weight: 600;">ল্যাভেন্ডার ড্রিম</span>
                 </div>
                 <!-- Peach Glow -->
                 <div class="theme-card" onclick="app.setColorTheme('peach-glow')" id="theme-card-peach-glow" style="border: 2px solid transparent; border-radius: 14px; padding: 0.85rem; cursor: pointer; text-align: center; background: rgba(0,0,0,0.02); transition: all 0.3s ease;">
@@ -839,6 +901,40 @@
                 <div class="theme-card" onclick="app.setColorTheme('night-bloom')" id="theme-card-night-bloom" style="border: 2px solid transparent; border-radius: 14px; padding: 0.85rem; cursor: pointer; text-align: center; background: rgba(0,0,0,0.02); transition: all 0.3s ease;">
                   <div style="width: 36px; height: 36px; border-radius: 50%; background: linear-gradient(135deg, #FF7FA5, #D81B60); margin: 0 auto 0.5rem; box-shadow: 0 4px 10px rgba(255,127,165,0.25);"></div>
                   <span style="font-size: 0.85rem; font-weight: 600;">নাইট ব্লুম</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="card mt-4">
+              <h3>সহজলভ্যতা (অ্যাক্সেসিবিলিটি)</h3>
+              <div class="flex-between mt-3">
+                <span>বড় লেখা</span>
+                <div
+                  class="toggle"
+                  id="large-text-toggle"
+                  onclick="app.toggleAccessibilityPreference('largeText')"
+                >
+                  <div class="slider"></div>
+                </div>
+              </div>
+              <div class="flex-between mt-3">
+                <span>বেশি কনট্রাস্ট</span>
+                <div
+                  class="toggle"
+                  id="high-contrast-toggle"
+                  onclick="app.toggleAccessibilityPreference('highContrast')"
+                >
+                  <div class="slider"></div>
+                </div>
+              </div>
+              <div class="flex-between mt-3">
+                <span>কম অ্যানিমেশন</span>
+                <div
+                  class="toggle"
+                  id="reduced-motion-toggle"
+                  onclick="app.toggleAccessibilityPreference('reducedMotion')"
+                >
+                  <div class="slider"></div>
                 </div>
               </div>
             </div>
@@ -901,6 +997,16 @@
                   <label>রিমাইন্ডারের সময়</label>
                   <input type="time" id="reminder-time" value="08:00" onchange="app.saveReminderTime()">
                 </div>
+                <div class="mt-3">
+                  <label class="text-xs text-muted block mb-1">রিমাইন্ডারের ধরন</label>
+                  <div class="chip-group" id="reminder-types-group">
+                    <div class="chip-item active" data-type="period" onclick="app.toggleReminderType('period')">পিরিয়ড 🩸</div>
+                    <div class="chip-item active" data-type="ovulation" onclick="app.toggleReminderType('ovulation')">ডিম্বস্ফোটন ✨</div>
+                    <div class="chip-item active" data-type="selfCare" onclick="app.toggleReminderType('selfCare')">নিজের যত্ন 🌸</div>
+                    <div class="chip-item active" data-type="water" onclick="app.toggleReminderType('water')">পানি খাওয়া 💧</div>
+                  </div>
+                </div>
+                <div id="reminder-status-msg" class="text-xs text-muted mt-3" style="line-height: 1.45; padding: 8px 12px; background: rgba(0,0,0,0.03); border-radius: 10px;"></div>
               </div>
             </div>
 

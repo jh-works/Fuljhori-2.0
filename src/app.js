@@ -13,12 +13,21 @@ const STATE = {
     pinEnabled: false,
     pin: null,
     remindersEnabled: false,
-    reminderTime: '08:00'
+    reminderTime: '08:00',
+    notificationPreferences: {
+      enabled: false,
+      time: '08:00',
+      period: true,
+      ovulation: true,
+      selfCare: true,
+      water: true
+    }
   },
   streak: { current: 0, longest: 0, lastDate: null },
   bookmarks: {},
   backupMeta: {}
 };
+window.STATE = STATE;
 
 // --- Canonical Date & Localization Helpers ---
 function toBanglaNumber(num) {
@@ -33,6 +42,11 @@ function parseLocalDate(val) {
   if (val instanceof Date) {
     if (isNaN(val.getTime())) return null;
     return new Date(val.getFullYear(), val.getMonth(), val.getDate(), 0, 0, 0, 0);
+  }
+  if (typeof val === 'number') {
+    const d = new Date(val);
+    if (isNaN(d.getTime())) return null;
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
   }
   if (typeof val === 'string') {
     const match = val.trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
@@ -52,9 +66,10 @@ function parseLocalDate(val) {
 window.parseLocalDate = parseLocalDate;
 
 function addDays(dateObj, days) {
-  const d = parseLocalDate(dateObj) || new Date();
-  d.setDate(d.getDate() + days);
-  return d;
+  const d = parseLocalDate(dateObj);
+  if (!d) return null;
+  d.setDate(d.getDate() + (parseInt(days, 10) || 0));
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
 }
 window.addDays = addDays;
 
@@ -62,7 +77,9 @@ function diffInDays(dateA, dateB) {
   const da = parseLocalDate(dateA);
   const db = parseLocalDate(dateB);
   if (!da || !db) return 0;
-  return Math.round((da.getTime() - db.getTime()) / (1000 * 60 * 60 * 24));
+  const utcA = Date.UTC(da.getFullYear(), da.getMonth(), da.getDate());
+  const utcB = Date.UTC(db.getFullYear(), db.getMonth(), db.getDate());
+  return Math.round((utcA - utcB) / (1000 * 60 * 60 * 24));
 }
 window.diffInDays = diffInDays;
 
@@ -108,6 +125,17 @@ function getGreetingByTime(name) {
   return name ? `${greeting}, ${name}! 👋` : `${greeting}! 👋`;
 }
 
+function escapeHTML(str) {
+  if (typeof str !== 'string') return '';
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+window.escapeHTML = escapeHTML;
+
 // --- Main Canonical Application Object ---
 const app = {
   charts: {},
@@ -125,10 +153,13 @@ const app = {
   // 1. DATA SAFETY & STORAGE LAYER (CANONICAL)
   // ==========================================
   safeParseJSON(str, fallback) {
-    if (!str) return fallback;
+    if (str === null || str === undefined) return fallback;
+    if (typeof str !== 'string' || !str.trim()) return fallback;
     try {
-      return JSON.parse(str);
+      const parsed = JSON.parse(str);
+      return parsed !== null && parsed !== undefined ? parsed : fallback;
     } catch (e) {
+      console.warn("safeParseJSON caught malformed JSON:", e);
       return fallback;
     }
   },
@@ -141,9 +172,9 @@ const app = {
     try {
       const val = localStorage.getItem(key);
       if (val === null || val === undefined) return fallback;
-      const parsed = JSON.parse(val);
-      return parsed !== null && parsed !== undefined ? parsed : fallback;
+      return this.safeParseJSON(val, fallback);
     } catch (e) {
+      console.warn(`safeGet error for ${key}:`, e);
       return fallback;
     }
   },
@@ -192,7 +223,17 @@ const app = {
     const age = !isNaN(ageNum) && ageNum >= 10 && ageNum <= 65 ? ageNum : null;
     const cycleLength = parseInt(data.cycleLength, 10) || 28;
     const periodLength = parseInt(data.periodLength, 10) || 5;
-    const lastPeriodStart = data.lastPeriodStart && !isNaN(new Date(data.lastPeriodStart).getTime()) ? getLocalDateString(new Date(data.lastPeriodStart)) : null;
+
+    let lastPeriodStart = null;
+    if (data.lastPeriodStart) {
+      const parsedLast = parseLocalDate(data.lastPeriodStart);
+      if (parsedLast && !isNaN(parsedLast.getTime())) {
+        lastPeriodStart = getLocalDateString(parsedLast);
+      } else {
+        console.warn("Invalid profile.lastPeriodStart excluded:", data.lastPeriodStart);
+      }
+    }
+
     return {
       name,
       age,
@@ -206,15 +247,45 @@ const app = {
   },
 
   validatePeriods(periods) {
-    if (!Array.isArray(periods)) return [];
+    if (!Array.isArray(periods)) {
+      console.warn("Invalid periods input, expected array");
+      return [];
+    }
     return periods
-      .filter(p => p && typeof p === 'object')
+      .filter(p => {
+        if (!p || typeof p !== 'object') {
+          console.warn("Invalid period entry (not an object), excluding:", p);
+          return false;
+        }
+        const s = p.startDate || p.start;
+        const parsedStart = parseLocalDate(s);
+        if (!parsedStart || isNaN(parsedStart.getTime())) {
+          console.warn("Period record has invalid start date, excluding:", s);
+          return false;
+        }
+        return true;
+      })
       .map(p => {
         const s = p.startDate || p.start;
-        const e = p.endDate || p.end || s;
-        const validStart = s && !isNaN(new Date(s).getTime()) ? getLocalDateString(new Date(s)) : getLocalDateString(new Date());
-        const validEnd = e && !isNaN(new Date(e).getTime()) ? getLocalDateString(new Date(e)) : validStart;
-        const flow = typeof p.flow === 'string' && p.flow ? p.flow : 'মাঝারি';
+        const e = p.endDate || p.end;
+        const validStart = getLocalDateString(parseLocalDate(s));
+        
+        let validEnd = null;
+        if (e !== undefined && e !== null && e !== '') {
+          const parsedEnd = parseLocalDate(e);
+          if (parsedEnd && !isNaN(parsedEnd.getTime())) {
+            const endStr = getLocalDateString(parsedEnd);
+            if (endStr >= validStart) {
+              validEnd = endStr;
+            } else {
+              console.warn("Period end date precedes start date, marking incomplete:", e);
+            }
+          } else {
+            console.warn("Invalid period end date, marking incomplete:", e);
+          }
+        }
+
+        const flow = typeof p.flow === 'string' && p.flow.trim() ? p.flow.trim() : 'মাঝারি';
         return {
           startDate: validStart,
           endDate: validEnd,
@@ -223,43 +294,105 @@ const app = {
           end: validEnd
         };
       })
-      .sort((a, b) => new Date(a.startDate) - new Date(b.startDate));
+      .sort((a, b) => parseLocalDate(a.startDate).getTime() - parseLocalDate(b.startDate).getTime());
   },
 
   validateDailyLog(log, dateStr) {
     if (!log || typeof log !== 'object') log = {};
-    const flow = typeof log.flow === 'string' ? log.flow : '';
-    
-    // Canonical mood mapping & normalization
-    let mood = typeof log.mood === 'string' ? log.mood : '';
-    if (mood === '😡 রাগী') mood = '😠 বিরক্ত';
-    if (mood === '😭 সংবেদনশীল') mood = '😢 কষ্টে';
 
-    // Canonical energy: 1 to 10 scale
-    let energyNum = parseInt(log.energy, 10);
-    let energy = 5;
-    if (!isNaN(energyNum)) {
-      if (energyNum > 10) {
-        energy = Math.min(10, Math.max(1, Math.round(energyNum / 10)));
+    // 1. Date validation
+    const parsedDate = parseLocalDate(dateStr || log.date);
+    const validDateStr = parsedDate ? getLocalDateString(parsedDate) : null;
+
+    // 2. Flow validation
+    let flow = null;
+    if (typeof log.flow === 'string' && log.flow.trim()) {
+      flow = log.flow.trim();
+    }
+
+    // 3. Mood validation (valid string, normalized, or null if missing/invalid)
+    let mood = null;
+    if (typeof log.mood === 'string' && log.mood.trim()) {
+      mood = log.mood.trim();
+      if (mood === '😡 রাগী') mood = '😠 বিরক্ত';
+      if (mood === '😭 সংবেদনশীল') mood = '😢 কষ্টে';
+    } else if (log.mood !== undefined && log.mood !== null && log.mood !== '') {
+      console.warn("Invalid mood value, reset to null:", log.mood);
+    }
+
+    // 4. Energy validation:
+    // valid -> 1–10 (number)
+    // missing -> null
+    // invalid -> null + safe warning
+    let energy = null;
+    if (log.energy !== undefined && log.energy !== null && log.energy !== '') {
+      const parsedEnergy = Number(log.energy);
+      if (!isNaN(parsedEnergy)) {
+        const intEnergy = Math.round(parsedEnergy);
+        if (intEnergy >= 1 && intEnergy <= 10) {
+          energy = intEnergy;
+        } else if (intEnergy > 10 && intEnergy <= 100) {
+          // Normalize legacy 10-100 scale to 1-10
+          energy = Math.min(10, Math.max(1, Math.round(intEnergy / 10)));
+        } else {
+          console.warn("Invalid energy value out of bounds (1-10), reset to null:", log.energy);
+          energy = null;
+        }
       } else {
-        energy = Math.min(10, Math.max(1, energyNum));
+        console.warn("Invalid non-numeric energy value, reset to null:", log.energy);
+        energy = null;
       }
     }
 
-    // Canonical sleep: duration (hours as number) + quality (string)
-    const sleepQuality = typeof log.sleepQuality === 'string' && log.sleepQuality ? log.sleepQuality : (typeof log.sleep === 'string' ? log.sleep : '');
-    let sleepHours = parseFloat(log.sleepHours);
-    if (isNaN(sleepHours) || sleepHours < 1 || sleepHours > 24) {
-      sleepHours = 7.5;
+    // 5. Sleep Hours validation:
+    // valid -> numeric (0 <= hours <= 24)
+    // missing -> null
+    // invalid -> null + safe warning
+    let sleepHours = null;
+    if (log.sleepHours !== undefined && log.sleepHours !== null && log.sleepHours !== '') {
+      const parsedHours = parseFloat(log.sleepHours);
+      if (!isNaN(parsedHours)) {
+        if (parsedHours >= 0 && parsedHours <= 24) {
+          sleepHours = Math.round(parsedHours * 10) / 10;
+        } else {
+          console.warn("Invalid sleep hours out of bounds (0-24), reset to null:", log.sleepHours);
+          sleepHours = null;
+        }
+      } else {
+        console.warn("Invalid non-numeric sleep hours, reset to null:", log.sleepHours);
+        sleepHours = null;
+      }
     }
 
-    const symptoms = Array.isArray(log.symptoms) ? log.symptoms.filter(s => typeof s === 'string') : [];
-    const notes = typeof log.notes === 'string' ? log.notes : '';
-    const periodStarted = Boolean(log.periodStarted || (flow && log.periodStarted !== false));
-    const periodEnded = Boolean(log.periodEnded);
+    // 6. Sleep Quality validation (string or null)
+    let sleepQuality = null;
+    const rawSleepQuality = log.sleepQuality || log.sleep;
+    if (typeof rawSleepQuality === 'string' && rawSleepQuality.trim()) {
+      sleepQuality = rawSleepQuality.trim();
+    }
+
+    // 7. Symptoms validation (Array of strings, or [])
+    let symptoms = [];
+    if (Array.isArray(log.symptoms)) {
+      symptoms = log.symptoms.filter(s => typeof s === 'string' && s.trim()).map(s => s.trim());
+    }
+
+    // 8. Notes validation (string, default '')
+    let notes = '';
+    if (typeof log.notes === 'string') {
+      notes = log.notes;
+    }
+
+    // 9. Period Flags
+    const periodStarted = typeof log.periodStarted === 'boolean' 
+      ? log.periodStarted 
+      : (flow ? true : null);
+    const periodEnded = typeof log.periodEnded === 'boolean' 
+      ? log.periodEnded 
+      : null;
 
     return {
-      date: dateStr,
+      date: validDateStr,
       periodStarted,
       periodEnded,
       flow,
@@ -274,12 +407,22 @@ const app = {
   },
 
   validateLogs(logs) {
-    if (!logs || typeof logs !== 'object') return {};
+    if (!logs || typeof logs !== 'object') {
+      console.warn("Invalid logs container, resetting to empty map");
+      return {};
+    }
     const valid = {};
     Object.keys(logs).forEach(dateKey => {
-      if (dateKey && !isNaN(new Date(dateKey).getTime())) {
-        const canonicalDate = getLocalDateString(new Date(dateKey));
-        valid[canonicalDate] = this.validateDailyLog(logs[dateKey], canonicalDate);
+      if (!dateKey) return;
+      const parsed = parseLocalDate(dateKey);
+      if (!parsed || isNaN(parsed.getTime())) {
+        console.warn("Log record has invalid date key, excluding corrupted entry:", dateKey);
+        return;
+      }
+      const canonicalDate = getLocalDateString(parsed);
+      const validatedLog = this.validateDailyLog(logs[dateKey], canonicalDate);
+      if (validatedLog && validatedLog.date) {
+        valid[canonicalDate] = validatedLog;
       }
     });
     return valid;
@@ -296,6 +439,8 @@ const app = {
       colorTheme = 'rose-bloom';
     }
     const accessibilityPreferences = {
+      largeText: Boolean(settings.accessibility?.largeText || settings.accessibilityPreferences?.largeText),
+      highContrast: Boolean(settings.accessibility?.highContrast || settings.accessibilityPreferences?.highContrast),
       reducedMotion: Boolean(settings.accessibility?.reducedMotion || settings.accessibilityPreferences?.reducedMotion)
     };
     return {
@@ -312,7 +457,11 @@ const app = {
       pin: settings.pin ? String(settings.pin) : (settings.pinSettings?.pin ? String(settings.pinSettings.pin) : null),
       notificationPreferences: {
         enabled: Boolean(settings.remindersEnabled || settings.notificationPreferences?.enabled),
-        time: typeof settings.reminderTime === 'string' && settings.reminderTime ? settings.reminderTime : (settings.notificationPreferences?.time || '08:00')
+        time: typeof settings.reminderTime === 'string' && settings.reminderTime ? settings.reminderTime : (settings.notificationPreferences?.time || '08:00'),
+        period: typeof settings.notificationPreferences?.period === 'boolean' ? settings.notificationPreferences.period : true,
+        ovulation: typeof settings.notificationPreferences?.ovulation === 'boolean' ? settings.notificationPreferences.ovulation : true,
+        selfCare: typeof settings.notificationPreferences?.selfCare === 'boolean' ? settings.notificationPreferences.selfCare : true,
+        water: typeof settings.notificationPreferences?.water === 'boolean' ? settings.notificationPreferences.water : true
       },
       remindersEnabled: Boolean(settings.remindersEnabled || settings.notificationPreferences?.enabled),
       reminderTime: typeof settings.reminderTime === 'string' && settings.reminderTime ? settings.reminderTime : (settings.notificationPreferences?.time || '08:00')
@@ -437,44 +586,106 @@ const app = {
   loadData() {
     this.migrate();
 
+    // 1. Profile
     try {
       const rawProfile = this.safeGet('fz_profile', null);
-      STATE.profile = this.validateProfile(rawProfile);
+      if (rawProfile !== null && typeof rawProfile === 'object') {
+        STATE.profile = this.validateProfile(rawProfile);
+        if (STATE.profile && JSON.stringify(rawProfile) !== JSON.stringify(STATE.profile)) {
+          this.saveData('fz_profile', STATE.profile);
+        }
+      } else {
+        STATE.profile = null;
+        if (rawProfile !== null) {
+          this.saveData('fz_profile', null);
+        }
+      }
     } catch (e) {
       this.recover('profile', e);
       STATE.profile = null;
+      this.saveData('fz_profile', null);
     }
 
+    // 2. Periods
     try {
-      const rawPeriods = this.safeGet('fz_periods', []);
-      STATE.periods = this.validatePeriods(rawPeriods);
+      const rawPeriods = this.safeGet('fz_periods', null);
+      if (rawPeriods === null) {
+        STATE.periods = [];
+      } else if (Array.isArray(rawPeriods)) {
+        STATE.periods = this.validatePeriods(rawPeriods);
+        if (JSON.stringify(rawPeriods) !== JSON.stringify(STATE.periods)) {
+          this.saveData('fz_periods', STATE.periods);
+        }
+      } else {
+        this.recover('periods', new Error("Corrupted periods container (not array)"));
+        STATE.periods = [];
+        this.saveData('fz_periods', []);
+      }
     } catch (e) {
       this.recover('periods', e);
       STATE.periods = [];
+      this.saveData('fz_periods', []);
     }
 
+    // 3. Logs
     try {
-      const rawLogs = this.safeGet('fz_logs', {});
-      STATE.logs = this.validateLogs(rawLogs);
+      const rawLogs = this.safeGet('fz_logs', null);
+      if (rawLogs === null) {
+        STATE.logs = {};
+      } else if (rawLogs && typeof rawLogs === 'object' && !Array.isArray(rawLogs)) {
+        STATE.logs = this.validateLogs(rawLogs);
+        if (JSON.stringify(rawLogs) !== JSON.stringify(STATE.logs)) {
+          this.saveData('fz_logs', STATE.logs);
+        }
+      } else {
+        this.recover('logs', new Error("Corrupted logs container (not object)"));
+        STATE.logs = {};
+        this.saveData('fz_logs', {});
+      }
     } catch (e) {
       this.recover('logs', e);
       STATE.logs = {};
+      this.saveData('fz_logs', {});
     }
 
+    // 4. Settings
     try {
-      const rawSettings = this.safeGet('fz_settings', {});
-      STATE.settings = this.validateSettings(rawSettings);
+      const rawSettings = this.safeGet('fz_settings', null);
+      if (rawSettings && typeof rawSettings === 'object' && !Array.isArray(rawSettings)) {
+        STATE.settings = this.validateSettings(rawSettings);
+        if (JSON.stringify(rawSettings) !== JSON.stringify(STATE.settings)) {
+          this.saveData('fz_settings', STATE.settings);
+        }
+      } else {
+        STATE.settings = this.validateSettings({});
+        if (rawSettings !== null) {
+          this.saveData('fz_settings', STATE.settings);
+        }
+      }
     } catch (e) {
       this.recover('settings', e);
       STATE.settings = this.validateSettings({});
+      this.saveData('fz_settings', STATE.settings);
     }
 
+    // 5. Streak
     try {
-      const rawStreak = this.safeGet('fz_streak', {});
-      STATE.streak = this.validateStreak(rawStreak);
+      const rawStreak = this.safeGet('fz_streak', null);
+      if (rawStreak && typeof rawStreak === 'object' && !Array.isArray(rawStreak)) {
+        STATE.streak = this.validateStreak(rawStreak);
+        if (JSON.stringify(rawStreak) !== JSON.stringify(STATE.streak)) {
+          this.saveData('fz_streak', STATE.streak);
+        }
+      } else {
+        STATE.streak = { current: 0, longest: 0, lastDate: null };
+        if (rawStreak !== null) {
+          this.saveData('fz_streak', STATE.streak);
+        }
+      }
     } catch (e) {
       this.recover('streak', e);
       STATE.streak = { current: 0, longest: 0, lastDate: null };
+      this.saveData('fz_streak', STATE.streak);
     }
 
     STATE.bookmarks = this.safeGet('fz_bookmarks', {});
@@ -623,8 +834,29 @@ const app = {
 
   executePendingAction() {
     if (this.pendingAction === 'reset_data') {
-      localStorage.clear();
-      sessionStorage.clear();
+      const keysToRemove = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && (k.startsWith('fz_') || ['profile', 'periods', 'logs', 'settings', 'streak', 'daily_logs', 'cycle_history', 'user_profile', 'userProfile', 'app_settings'].includes(k))) {
+          keysToRemove.push(k);
+        }
+      }
+      keysToRemove.forEach(k => {
+        try { localStorage.removeItem(k); } catch (e) {}
+      });
+      try {
+        sessionStorage.removeItem('fz_unlocked');
+      } catch (e) {}
+
+      STATE.profile = null;
+      STATE.periods = [];
+      STATE.logs = {};
+      STATE.settings = this.validateSettings({});
+      STATE.streak = { current: 0, longest: 0, lastDate: null };
+      STATE.bookmarks = {};
+      STATE.backupMeta = {};
+      this.predictions = null;
+
       location.reload();
     } else if (this.pendingAction === 'reset_settings') {
       STATE.settings = this.validateSettings({});
@@ -733,6 +965,53 @@ const app = {
     if (analyticsView && analyticsView.classList.contains('active')) {
       this.renderAnalytics();
     }
+    this.applyAccessibility();
+  },
+
+  applyAccessibility() {
+    const prefs = STATE.settings?.accessibilityPreferences || STATE.settings?.accessibility || {};
+    const largeText = Boolean(prefs.largeText);
+    const highContrast = Boolean(prefs.highContrast);
+    const reducedMotion = Boolean(prefs.reducedMotion);
+
+    document.documentElement.setAttribute('data-large-text', largeText ? 'true' : 'false');
+    document.documentElement.setAttribute('data-high-contrast', highContrast ? 'true' : 'false');
+    document.documentElement.setAttribute('data-reduced-motion', reducedMotion ? 'true' : 'false');
+
+    if (largeText) {
+      document.documentElement.classList.add('accessibility-large-text');
+    } else {
+      document.documentElement.classList.remove('accessibility-large-text');
+    }
+
+    if (highContrast) {
+      document.documentElement.classList.add('accessibility-high-contrast');
+    } else {
+      document.documentElement.classList.remove('accessibility-high-contrast');
+    }
+
+    if (reducedMotion) {
+      document.documentElement.classList.add('accessibility-reduced-motion');
+    } else {
+      document.documentElement.classList.remove('accessibility-reduced-motion');
+    }
+  },
+
+  toggleAccessibilityPreference(prefKey) {
+    if (!STATE.settings) STATE.settings = {};
+    if (!STATE.settings.accessibilityPreferences) {
+      STATE.settings.accessibilityPreferences = {
+        largeText: false,
+        highContrast: false,
+        reducedMotion: false
+      };
+    }
+    STATE.settings.accessibilityPreferences[prefKey] = !STATE.settings.accessibilityPreferences[prefKey];
+    STATE.settings.accessibility = { ...STATE.settings.accessibilityPreferences };
+    STATE.settings = this.validate('settings', STATE.settings);
+    this.saveData('fz_settings', STATE.settings);
+    this.applyAccessibility();
+    this.renderSettings();
   },
 
   applyTheme() {
@@ -976,7 +1255,7 @@ const app = {
 
   calculateCurrentCycleDay(latestPeriodStart, today) {
     const start = parseLocalDate(latestPeriodStart);
-    const t = parseLocalDate(today);
+    const t = parseLocalDate(today || new Date());
     if (!start || isNaN(start.getTime()) || !t || isNaN(t.getTime())) {
       return null;
     }
@@ -984,23 +1263,32 @@ const app = {
     if (diff < 0) {
       return 1;
     }
-    return diff + 1;
+    const rawDay = diff + 1;
+    if (rawDay > 365) {
+      return 365;
+    }
+    return rawDay;
   },
 
   calculateNextPeriod(latestPeriodStart, predictedCycleLength, periodLength, allPeriods, today) {
     const anchor = parseLocalDate(latestPeriodStart);
+    if (!anchor) return { nextPeriodStart: null, nextPeriodEnd: null, isActualLogged: false };
+
     const pLen = Math.min(Math.max(parseInt(periodLength, 10) || 5, 2), 12);
     const cLen = Math.min(Math.max(parseInt(predictedCycleLength, 10) || 28, 20), 45);
 
-    // If an actual period has already been logged strictly after anchor date, prefer it
-    const laterLogged = (allPeriods || []).find(p => {
-      const pStart = parseLocalDate(p.startDate || p.start);
-      return pStart && diffInDays(pStart, anchor) > 0;
-    });
+    // If an actual period has already been logged strictly after anchor date, prefer the earliest one
+    const futureLogged = (allPeriods || [])
+      .map(p => ({
+        start: parseLocalDate(p.startDate || p.start),
+        end: parseLocalDate(p.endDate || p.end)
+      }))
+      .filter(p => p.start && diffInDays(p.start, anchor) > 0)
+      .sort((a, b) => a.start.getTime() - b.start.getTime());
 
-    if (laterLogged) {
-      const nextStart = parseLocalDate(laterLogged.startDate || laterLogged.start);
-      const nextEnd = parseLocalDate(laterLogged.endDate || laterLogged.end) || addDays(nextStart, pLen - 1);
+    if (futureLogged.length > 0) {
+      const nextStart = futureLogged[0].start;
+      const nextEnd = futureLogged[0].end || addDays(nextStart, pLen - 1);
       return {
         nextPeriodStart: nextStart,
         nextPeriodEnd: nextEnd,
@@ -1041,7 +1329,9 @@ const app = {
       ovulationDate,
       fertileStartDate,
       fertileEndDate,
-      nextPeriodStart
+      nextPeriodStart,
+      isOverdue,
+      overdueDays
     } = params;
 
     const t = parseLocalDate(today);
@@ -1051,7 +1341,7 @@ const app = {
     let isCurrentPeriodActive = false;
     for (const p of (allPeriods || [])) {
       const pStart = parseLocalDate(p.startDate || p.start);
-      const pEnd = parseLocalDate(p.endDate || p.end) || addDays(pStart, pLen - 1);
+      const pEnd = parseLocalDate(p.endDate || p.end) || (pStart ? addDays(pStart, pLen - 1) : null);
       if (pStart && pEnd && t >= pStart && t <= pEnd) {
         isCurrentPeriodActive = true;
         break;
@@ -1071,8 +1361,8 @@ const app = {
     // Fallback: If today is within estimated period window from latestPeriodStart
     if (latestPeriodStart) {
       const anchorStart = parseLocalDate(latestPeriodStart);
-      const anchorEnd = addDays(anchorStart, pLen - 1);
-      if (t >= anchorStart && t <= anchorEnd) {
+      const anchorEnd = anchorStart ? addDays(anchorStart, pLen - 1) : null;
+      if (anchorStart && anchorEnd && t >= anchorStart && t <= anchorEnd) {
         return {
           phaseName: "মাসিকের সময়",
           phaseColor: "var(--primary)",
@@ -1083,11 +1373,24 @@ const app = {
       }
     }
 
+    // Rule Overdue: If cycle is overdue and no bleeding logged
+    if (isOverdue) {
+      return {
+        phaseName: "পিরিয়ড বিলম্বিত",
+        phaseColor: "#FF9800",
+        phaseColorTitle: "#F57C00",
+        advice: overdueDays > 0
+          ? `সম্ভাব্য তারিখ ${toBanglaNumber(overdueDays)} দিন পেরিয়ে গেছে। নতুন পিরিয়ড শুরু হলে লগ করো 🌸`
+          : "সম্ভাব্য তারিখ পেরিয়ে গেছে। নতুন পিরিয়ড লগ করলে হিসাবটা আবার ঠিক হবে 🌸",
+        isCurrentPeriodActive: false
+      };
+    }
+
     // Rule B: ডিম্বস্ফোটনের সময় (Current date is ovulation date ±1 day)
     if (ovulationDate) {
       const ovulMinus1 = addDays(ovulationDate, -1);
       const ovulPlus1 = addDays(ovulationDate, 1);
-      if (t >= ovulMinus1 && t <= ovulPlus1) {
+      if (ovulMinus1 && ovulPlus1 && t >= ovulMinus1 && t <= ovulPlus1) {
         return {
           phaseName: "ডিম্বস্ফোটনের সময়",
           phaseColor: "var(--accent)",
@@ -1099,23 +1402,27 @@ const app = {
     }
 
     // Rule C: ফলিকুলার পর্যায় (After menstrual period and before ovulation window)
-    if (ovulationDate && t < addDays(ovulationDate, -1)) {
-      return {
-        phaseName: "ফলিকুলার পর্যায়",
-        phaseColor: "var(--secondary)",
-        phaseColorTitle: "var(--accent)",
-        advice: "আজকে এনার্জি একটু ভালো থাকতে পারে 🌱",
-        isCurrentPeriodActive: false
-      };
+    if (ovulationDate) {
+      const ovulMinus1 = addDays(ovulationDate, -1);
+      if (ovulMinus1 && t < ovulMinus1) {
+        return {
+          phaseName: "ফলিকুলার পর্যায়",
+          phaseColor: "var(--secondary)",
+          phaseColorTitle: "var(--accent)",
+          advice: "আজকে এনার্জি একটু ভালো থাকতে পারে 🌱",
+          isCurrentPeriodActive: false
+        };
+      }
     }
 
     // Rule D: লুটিয়াল পর্যায় (After ovulation window and before or at next predicted period)
+    const isDueToday = nextPeriodStart && diffInDays(nextPeriodStart, t) === 0;
     return {
       phaseName: "লুটিয়াল পর্যায়",
       phaseColor: "#FFB300",
       phaseColorTitle: "#D89A00",
-      advice: (nextPeriodStart && t >= nextPeriodStart)
-        ? "পিরিয়ড বিলম্বিত হতে পারে, পর্যাপ্ত বিশ্রাম ও পানি পান করো 🌿"
+      advice: isDueToday
+        ? "আজ তোমার পিরিয়ড শুরু হতে পারে। নিজের যত্ন নিও 🌸"
         : "আজ একটু রেস্ট নিলে ভালো লাগতে পারে 💕",
       isCurrentPeriodActive: false
     };
@@ -1123,6 +1430,7 @@ const app = {
 
   getPredictionState() {
     const today = parseLocalDate(new Date());
+    const todayStr = getLocalDateString(today);
     const profile = STATE.profile || {};
     const fallbackCycleLength = parseInt(profile.cycleLength, 10) || 28;
     const periodLength = parseInt(profile.periodLength, 10) || 5;
@@ -1134,23 +1442,50 @@ const app = {
       .map(p => {
         const s = p.startDate || p.start;
         const e = p.endDate || p.end || s;
+        const parsedStart = parseLocalDate(s);
+        const parsedEnd = parseLocalDate(e) || parsedStart;
         return {
-          startDate: getLocalDateString(parseLocalDate(s)),
-          endDate: getLocalDateString(parseLocalDate(e)),
+          startDate: parsedStart ? getLocalDateString(parsedStart) : null,
+          endDate: parsedEnd ? getLocalDateString(parsedEnd) : null,
           flow: p.flow || 'মাঝারি'
         };
       })
       .filter(p => p.startDate)
-      .sort((a, b) => parseLocalDate(a.startDate) - parseLocalDate(b.startDate));
+      .sort((a, b) => parseLocalDate(a.startDate).getTime() - parseLocalDate(b.startDate).getTime());
 
-    // Anchor period start
-    const latestPeriodRecord = validPeriods.length > 0 ? validPeriods[validPeriods.length - 1] : null;
-    const latestStartStr = latestPeriodRecord?.startDate || (profile.lastPeriodStart ? getLocalDateString(parseLocalDate(profile.lastPeriodStart)) : null);
+    // Also merge profile.lastPeriodStart if not already in validPeriods
+    if (profile.lastPeriodStart) {
+      const pStart = getLocalDateString(parseLocalDate(profile.lastPeriodStart));
+      if (pStart && !validPeriods.some(p => p.startDate === pStart)) {
+        validPeriods.push({
+          startDate: pStart,
+          endDate: getLocalDateString(addDays(parseLocalDate(pStart), periodLength - 1)),
+          flow: 'মাঝারি'
+        });
+        validPeriods.sort((a, b) => parseLocalDate(a.startDate).getTime() - parseLocalDate(b.startDate).getTime());
+      }
+    }
+
+    // Determine latest actual anchor: prefer latest period that has already started (<= today)
+    const startedPeriods = validPeriods.filter(p => parseLocalDate(p.startDate) <= today);
+    let latestStartStr = null;
+    if (startedPeriods.length > 0) {
+      latestStartStr = startedPeriods[startedPeriods.length - 1].startDate;
+    } else if (validPeriods.length > 0) {
+      // If all periods are scheduled for the future, use the earliest one
+      latestStartStr = validPeriods[0].startDate;
+    }
 
     // If no usable anchor period at all -> Insufficient data state
     if (!latestStartStr) {
       this.predictions = {
+        _calcDate: todayStr,
         predictionAvailable: false,
+        predictionStatus: 'insufficient_data',
+        isOverdue: false,
+        overdueDays: 0,
+        overdueDate: null,
+        overdueDateStr: '',
         currentCycleDay: null,
         predictedCycleLength: fallbackCycleLength,
         cycleLength: fallbackCycleLength,
@@ -1205,20 +1540,28 @@ const app = {
 
     // 5. Next Period Calculation (Actual vs Predicted)
     const nextPeriodInfo = this.calculateNextPeriod(latestStart, predictedCycleLength, periodLength, validPeriods, today);
-    const nextPeriodStart = nextPeriodInfo.nextPeriodStart;
-    const nextPeriodEnd = nextPeriodInfo.nextPeriodEnd;
-    const isNextPeriodLogged = nextPeriodInfo.isActualLogged;
+    const rawNextPeriodStart = nextPeriodInfo.nextPeriodStart;
+    const rawNextPeriodEnd = nextPeriodInfo.nextPeriodEnd;
+    const isNextPeriodLogged = Boolean(nextPeriodInfo.isActualLogged);
 
-    // 6. Ovulation & Fertile Window
-    const ovulationDate = this.calculateOvulation(nextPeriodStart);
-    const fertileWindow = this.calculateFertileWindow(ovulationDate);
+    // 6. Check Overdue Status
+    const daysUntilNext = rawNextPeriodStart ? diffInDays(rawNextPeriodStart, today) : null;
+    const isOverdue = !isNextPeriodLogged && daysUntilNext !== null && daysUntilNext < 0;
+    const isDueToday = !isNextPeriodLogged && daysUntilNext !== null && daysUntilNext === 0;
+    const overdueDays = isOverdue ? Math.abs(daysUntilNext) : 0;
+    const predictionStatus = isOverdue ? 'overdue' : (isNextPeriodLogged ? 'logged' : (isDueToday ? 'due_today' : 'active'));
+    const predictionAvailable = !isOverdue;
+
+    // 7. Ovulation & Fertile Window
+    const ovulationDate = isOverdue ? null : this.calculateOvulation(rawNextPeriodStart);
+    const fertileWindow = isOverdue ? { fertileStartDate: null, fertileEndDate: null } : this.calculateFertileWindow(ovulationDate);
     const fertileStartDate = fertileWindow.fertileStartDate;
     const fertileEndDate = fertileWindow.fertileEndDate;
 
-    // 7. Current Cycle Day
+    // 8. Current Cycle Day
     const currentCycleDay = this.calculateCurrentCycleDay(latestStart, today);
 
-    // 8. Phase Calculation
+    // 9. Phase Calculation
     const phaseInfo = this.calculateCurrentPhase({
       today,
       allPeriods: validPeriods,
@@ -1227,38 +1570,49 @@ const app = {
       ovulationDate,
       fertileStartDate,
       fertileEndDate,
-      nextPeriodStart
+      nextPeriodStart: rawNextPeriodStart,
+      isOverdue,
+      overdueDays
     });
 
+    const nextPeriodStart = isOverdue ? null : rawNextPeriodStart;
+    const nextPeriodEnd = isOverdue ? null : rawNextPeriodEnd;
+
     this.predictions = {
-      predictionAvailable: true,
+      _calcDate: todayStr,
+      predictionAvailable,
+      predictionStatus,
+      isOverdue,
+      overdueDays,
+      overdueDate: isOverdue ? rawNextPeriodStart : null,
+      overdueDateStr: (isOverdue && rawNextPeriodStart) ? getLocalDateString(rawNextPeriodStart) : '',
       currentCycleDay,
       predictedCycleLength,
       cycleLength: predictedCycleLength,
       periodLength,
       nextPeriodDate: nextPeriodStart,
       nextPeriodStart,
-      nextPeriodDateStr: getLocalDateString(nextPeriodStart),
+      nextPeriodDateStr: nextPeriodStart ? getLocalDateString(nextPeriodStart) : '',
       nextPeriodEnd,
-      nextPeriodEndDateStr: getLocalDateString(nextPeriodEnd),
+      nextPeriodEndDateStr: nextPeriodEnd ? getLocalDateString(nextPeriodEnd) : '',
       isNextPeriodLogged,
       ovulationDate,
-      ovulationDateStr: getLocalDateString(ovulationDate),
+      ovulationDateStr: ovulationDate ? getLocalDateString(ovulationDate) : '',
       fertileStartDate,
       fertileStart: fertileStartDate,
-      fertileStartDateStr: getLocalDateString(fertileStartDate),
+      fertileStartDateStr: fertileStartDate ? getLocalDateString(fertileStartDate) : '',
       fertileEndDate,
       fertileEnd: fertileEndDate,
-      fertileEndDateStr: getLocalDateString(fertileEndDate),
+      fertileEndDateStr: fertileEndDate ? getLocalDateString(fertileEndDate) : '',
       currentPhase: phaseInfo.phaseName,
       phaseName: phaseInfo.phaseName,
       phaseColor: phaseInfo.phaseColor,
       phaseColorTitle: phaseInfo.phaseColorTitle,
       advice: phaseInfo.advice,
       isCurrentPeriodActive: phaseInfo.isCurrentPeriodActive,
-      confidenceLevel: confidence.level,
-      confidenceScore: confidence.score,
-      confidence: confidence.score,
+      confidenceLevel: isOverdue ? 'আরও তথ্য লাগবে' : confidence.level,
+      confidenceScore: isOverdue ? Math.min(confidence.score, 45) : confidence.score,
+      confidence: isOverdue ? Math.min(confidence.score, 45) : confidence.score,
       cycleCountUsed: cycleLengths.length,
       cycleLengths,
       cycleVariability,
@@ -1270,8 +1624,31 @@ const app = {
     return this.predictions;
   },
 
-  calculatePredictions() {
+  calculatePredictions(force = false) {
+    const todayStr = getLocalDateString(new Date());
+    if (!force && this.predictions && this.predictions._calcDate === todayStr) {
+      return this.predictions;
+    }
     return this.getPredictionState();
+  },
+
+  checkDateRollover() {
+    const currentDate = getLocalDateString(new Date());
+    if (this._lastObservedDate && this._lastObservedDate !== currentDate) {
+      this._lastObservedDate = currentDate;
+      this.predictions = null;
+      this.calculatePredictions(true);
+      const dateEl = document.getElementById('home-date');
+      if (dateEl) dateEl.innerText = formatBanglaDate(new Date());
+
+      if (this.activeTab === 'home') {
+        this.renderHome();
+      } else if (this.activeTab === 'calendar') {
+        this.renderCalendar();
+      } else if (this.activeTab === 'analytics') {
+        this.renderAnalytics();
+      }
+    }
   },
 
   // ==========================================
@@ -1297,6 +1674,17 @@ const app = {
 
     this.loadData();
     this.applyAppearance();
+    this._lastObservedDate = getLocalDateString(new Date());
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') {
+        this.checkDateRollover();
+      }
+    });
+    window.addEventListener('focus', () => {
+      this.checkDateRollover();
+    });
+
     this.calContextDate = new Date();
     this.calContextDate.setDate(1);
 
@@ -1632,6 +2020,7 @@ const app = {
   // 6. HOME VIEW (CANONICAL)
   // ==========================================
   updateGreeting() {
+    this.checkDateRollover();
     if (!STATE.profile) return;
     const greetingEl = document.getElementById('greeting-name');
     if (!greetingEl) return;
@@ -1686,7 +2075,11 @@ const app = {
 
       const chipNext = document.getElementById('chip-next-period');
       if (chipNext) {
-        chipNext.innerText = p.nextPeriodStart ? formatBanglaShortDate(p.nextPeriodStart) : '-';
+        if (p.isOverdue) {
+          chipNext.innerText = `${toBanglaNumber(p.overdueDays)} দিন বিলম্বিত`;
+        } else {
+          chipNext.innerText = p.nextPeriodStart ? formatBanglaShortDate(p.nextPeriodStart) : '-';
+        }
       }
 
       const chipCycle = document.getElementById('chip-cycle-length');
@@ -1832,29 +2225,64 @@ const app = {
     if (!container) return;
     const logs = STATE.logs || {};
     const logDates = Object.keys(logs).sort().reverse();
-    const recentLogs = logDates.slice(0, 7).map(d => logs[d]);
+    const recentLogs = logDates.slice(0, 7).map(d => logs[d]).filter(Boolean);
 
     const cards = [];
 
-    // Friendly 1: Sleep
-    const goodSleep = recentLogs.filter(l => l.sleep && l.sleep.includes('ভালো')).length;
-    const lowSleep = recentLogs.filter(l => l.sleep && l.sleep.includes('কম')).length;
-    if (lowSleep >= 2) {
-      cards.push({ icon: '😴', text: 'গত কয়েকদিনে ঘুম কিছুটা কম হয়েছে, আজ একটু আগে ঘুমানোর চেষ্টা করো।' });
-    } else if (goodSleep >= 2) {
-      cards.push({ icon: '🌿', text: 'তোমার ঘুমের রুটিন চমৎকার চলছে! এটি শরীরের শক্তি বজায় রাখতে সহায়ক।' });
+    // Friendly 1: Sleep (Only if sleep was actually recorded - exclude null/missing)
+    const validSleepLogs = recentLogs.filter(l => {
+      const hasHours = typeof l.sleepHours === 'number' && !isNaN(l.sleepHours) && l.sleepHours > 0;
+      const rawQuality = l.sleepQuality || l.sleep;
+      const hasQuality = typeof rawQuality === 'string' && rawQuality.trim().length > 0;
+      return hasHours || hasQuality;
+    });
+
+    if (validSleepLogs.length >= 2) {
+      const isLowSleep = (l) => {
+        if (typeof l.sleepHours === 'number' && !isNaN(l.sleepHours) && l.sleepHours > 0 && l.sleepHours < 7) return true;
+        const q = l.sleepQuality || l.sleep;
+        return typeof q === 'string' && (q.includes('কম') || q.includes('খারাপ'));
+      };
+      const isGoodSleep = (l) => {
+        if (typeof l.sleepHours === 'number' && !isNaN(l.sleepHours) && l.sleepHours >= 7.5) return true;
+        const q = l.sleepQuality || l.sleep;
+        return typeof q === 'string' && q.includes('ভালো');
+      };
+
+      const lowSleepCount = validSleepLogs.filter(isLowSleep).length;
+      const goodSleepCount = validSleepLogs.filter(isGoodSleep).length;
+
+      if (lowSleepCount >= 2) {
+        cards.push({ icon: '😴', text: 'গত কয়েকদিনে ঘুম কিছুটা কম হয়েছে, আজ একটু আগে ঘুমানোর চেষ্টা করো।' });
+      } else if (goodSleepCount >= 2) {
+        cards.push({ icon: '🌿', text: 'তোমার ঘুমের রুটিন চমৎকার চলছে! এটি শরীরের শক্তি বজায় রাখতে সহায়ক।' });
+      }
     }
 
-    // Friendly 2: Energy
-    const highEnergy = recentLogs.filter(l => l.energy >= 65).length;
-    if (highEnergy >= 2) {
-      cards.push({ icon: '⚡', text: 'এই সপ্তাহে তোমার শক্তির মাত্রা বেশ ভালো ছিল।' });
+    // Friendly 2: Energy (Canonical 1-10 scale; exclude null/missing)
+    const validEnergyLogs = recentLogs.filter(l => typeof l.energy === 'number' && !isNaN(l.energy) && l.energy >= 1 && l.energy <= 10);
+    if (validEnergyLogs.length >= 2) {
+      const highEnergyCount = validEnergyLogs.filter(l => l.energy >= 7).length;
+      const lowEnergyCount = validEnergyLogs.filter(l => l.energy <= 4).length;
+
+      if (highEnergyCount >= 2) {
+        cards.push({ icon: '⚡', text: 'এই সপ্তাহে তোমার শক্তির মাত্রা বেশ ভালো ছিল।' });
+      } else if (lowEnergyCount >= 2) {
+        cards.push({ icon: '🍃', text: 'গত কয়েকদিনে শক্তির মাত্রা কিছুটা কম ছিল, একটু বাড়তি বিশ্রাম ও পুষ্টিকর খাবার নাও।' });
+      }
     }
 
-    // Friendly 3: Mood
-    const goodMood = recentLogs.filter(l => l.mood && l.mood.includes('ভালো')).length;
-    if (goodMood >= 2) {
-      cards.push({ icon: '🌸', text: 'মেজাজ বেশ শান্ত ও সুন্দর রয়েছে। ইতিবাচক অনুভূতি উপভোগ করো।' });
+    // Friendly 3: Mood (Exclude null/missing)
+    const validMoodLogs = recentLogs.filter(l => typeof l.mood === 'string' && l.mood.trim().length > 0);
+    if (validMoodLogs.length >= 2) {
+      const goodMoodCount = validMoodLogs.filter(l => l.mood.includes('ভালো') || l.mood.includes('প্রেমময়')).length;
+      const stressedMoodCount = validMoodLogs.filter(l => l.mood.includes('কষ্টে') || l.mood.includes('বিরক্ত') || l.mood.includes('উদ্বিগ্ন') || l.mood.includes('হতাশ')).length;
+
+      if (goodMoodCount >= 2) {
+        cards.push({ icon: '🌸', text: 'মেজাজ বেশ শান্ত ও সুন্দর রয়েছে। ইতিবাচক অনুভূতি উপভোগ করো।' });
+      } else if (stressedMoodCount >= 2) {
+        cards.push({ icon: '💕', text: 'কিছুদিন ধরে কিছুটা মানসিক চাপ মনে হতে পারে, নিজের পছন্দের কাজে একটু সময় দাও।' });
+      }
     }
 
     // Limit to max 3 concise cards per Section 3
@@ -1899,7 +2327,7 @@ const app = {
   },
 
   renderCalendar() {
-    const p = this.predictions || this.calculatePredictions();
+    const p = this.calculatePredictions();
     if (!this.calContextDate) {
       this.calContextDate = new Date();
       this.calContextDate.setDate(1);
@@ -2013,8 +2441,9 @@ const app = {
     if (targetCell) targetCell.classList.add('selected');
 
     let html = '';
-    if (phaseInfo) {
-      html += `<div class="mb-3 text-primary font-semibold" style="font-size: 0.95rem;">${phaseInfo}</div>`;
+    const resolvedPhase = phaseInfo || this.calculatePhaseForDate(dateStr);
+    if (resolvedPhase) {
+      html += `<div class="mb-3 text-primary font-semibold" style="font-size: 0.95rem;">${resolvedPhase}</div>`;
     }
 
     const log = STATE.logs ? STATE.logs[dateStr] : null;
@@ -2027,22 +2456,23 @@ const app = {
     if (log || isPeriod) {
       html += `<div style="background: color-mix(in srgb, var(--primary) 5%, transparent); padding: 1rem; border-radius: 16px; margin-bottom: 0.5rem; border: 1px solid color-mix(in srgb, var(--primary) 12%, transparent);">`;
       if (isPeriod || log?.flow) {
-        html += `<div class="mb-1 text-sm"><strong>পিরিয়ডের অবস্থা:</strong> ${log?.flow ? `রক্তপ্রবাহ ${log.flow}` : 'পিরিয়ড চলছে'}</div>`;
+        html += `<div class="mb-1 text-sm"><strong>পিরিয়ডের অবস্থা:</strong> ${log?.flow ? `রক্তপ্রবাহ ${escapeHTML(log.flow)}` : 'পিরিয়ড চলছে'}</div>`;
       }
       if (log?.mood) {
-        html += `<div class="mb-1 text-sm"><strong>মেজাজ:</strong> ${log.mood}</div>`;
+        html += `<div class="mb-1 text-sm"><strong>মেজাজ:</strong> ${escapeHTML(log.mood)}</div>`;
       }
       if (log?.symptoms && Array.isArray(log.symptoms) && log.symptoms.length > 0) {
-        html += `<div class="mb-1 text-sm"><strong>লক্ষণসমূহ:</strong> ${log.symptoms.join(', ')}</div>`;
+        html += `<div class="mb-1 text-sm"><strong>লক্ষণসমূহ:</strong> ${log.symptoms.map(s => escapeHTML(s)).join(', ')}</div>`;
       }
       if (log?.energy !== undefined && log.energy !== null && log.energy !== '') {
-        html += `<div class="mb-1 text-sm"><strong>শক্তির মাত্রা:</strong> ${toBanglaNumber(log.energy)}%</div>`;
+        const eVal = typeof log.energy === 'number' ? (log.energy > 10 ? Math.round(log.energy / 10) : log.energy) : log.energy;
+        html += `<div class="mb-1 text-sm"><strong>শক্তির মাত্রা:</strong> ${toBanglaNumber(eVal)}/১০</div>`;
       }
       if (log?.sleep) {
-        html += `<div class="mb-1 text-sm"><strong>ঘুম:</strong> ${log.sleep}</div>`;
+        html += `<div class="mb-1 text-sm"><strong>ঘুম:</strong> ${escapeHTML(log.sleep)}</div>`;
       }
       if (log?.notes && log.notes.trim()) {
-        html += `<div class="mt-2 text-sm" style="border-top: 1px dashed var(--border); padding-top: 6px;"><strong>নোট:</strong> ${log.notes}</div>`;
+        html += `<div class="mt-2 text-sm" style="border-top: 1px dashed var(--border); padding-top: 6px;"><strong>নোট:</strong> ${escapeHTML(log.notes)}</div>`;
       }
       html += `</div>`;
     } else {
@@ -2081,42 +2511,47 @@ const app = {
     this.saveData('fz_logs', STATE.logs);
 
     if (!STATE.periods) STATE.periods = [];
-    const dTime = new Date(dStr).getTime();
-    let extended = false;
+    const flowVal = STATE.logs[dStr].flow || 'মাঝারি';
 
-    for (let i = 0; i < STATE.periods.length; i++) {
-      const p = STATE.periods[i];
-      const pEndTime = new Date(p.endDate || p.end).getTime();
-      const pStartTime = new Date(p.startDate || p.start).getTime();
-      const diffEnd = Math.round((dTime - pEndTime) / (1000 * 60 * 60 * 24));
-      const diffStart = Math.round((pStartTime - dTime) / (1000 * 60 * 60 * 24));
+    // 1. Check if dStr is already inside an active period
+    const existing = STATE.periods.find(p => {
+      const s = p.startDate || p.start;
+      const e = p.endDate || p.end || s;
+      return s && dStr >= s && dStr <= e;
+    });
 
-      if (diffEnd >= 1 && diffEnd <= 2) {
-        p.endDate = dStr;
-        p.end = dStr;
-        extended = true;
-        break;
-      } else if (diffStart >= 1 && diffStart <= 2) {
-        p.startDate = dStr;
-        p.start = dStr;
-        extended = true;
-        break;
+    if (existing) {
+      if (flowVal) existing.flow = flowVal;
+    } else {
+      // 2. Check if dStr can naturally extend an open or nearby period
+      const openPeriod = [...STATE.periods]
+        .filter(p => (p.startDate || p.start) && !(p.endDate || p.end))
+        .find(p => dStr >= (p.startDate || p.start));
+
+      if (openPeriod) {
+        if (flowVal) openPeriod.flow = flowVal;
+      } else {
+        // Create new canonical period interval starting on dStr
+        STATE.periods.push({
+          startDate: dStr,
+          endDate: null,
+          flow: flowVal,
+          start: dStr,
+          end: null
+        });
       }
     }
 
-    if (!extended) {
-      STATE.periods.push({
-        startDate: dStr,
-        endDate: dStr,
-        flow: 'মাঝারি',
-        start: dStr,
-        end: dStr
-      });
-    }
     STATE.periods = this.validate('periods', STATE.periods);
     this.saveData('fz_periods', STATE.periods);
 
-    this.calculatePredictions();
+    if (STATE.profile && STATE.periods.length > 0) {
+      const latestP = STATE.periods[STATE.periods.length - 1];
+      STATE.profile.lastPeriodStart = latestP.startDate || latestP.start;
+      this.saveData('fz_profile', STATE.profile);
+    }
+
+    this.calculatePredictions(true);
     this.renderHome();
     this.renderCalendar();
     this.closeDayModal();
@@ -2250,10 +2685,16 @@ const app = {
 
     // Check existing records in STATE
     const log = STATE.logs ? STATE.logs[dStr] : null;
-    const periods = STATE.periods || [];
+    const periods = Array.isArray(STATE.periods) ? STATE.periods : [];
     const isPeriodStartInPeriods = periods.some(p => (p.startDate || p.start) === dStr);
     const isPeriodEndInPeriods = periods.some(p => (p.endDate || p.end) === dStr);
-    const activePeriodInDate = periods.find(p => dStr >= (p.startDate || p.start) && dStr <= (p.endDate || p.end));
+    const activePeriodInDate = periods.find(p => {
+      const s = p.startDate || p.start;
+      const e = p.endDate || p.end;
+      if (!s) return false;
+      if (e) return dStr >= s && dStr <= e;
+      return dStr >= s;
+    });
 
     // 1. Period Start status
     let isStart = false;
@@ -2261,8 +2702,10 @@ const app = {
       isStart = log.periodStarted;
     } else if (log && log.flow) {
       isStart = true;
-    } else if (!log && (activePeriodInDate || isPeriodStartInPeriods)) {
+    } else if (isPeriodStartInPeriods) {
       isStart = true;
+    } else if (!log && activePeriodInDate) {
+      isStart = (activePeriodInDate.startDate || activePeriodInDate.start) === dStr;
     }
 
     const startChips = document.querySelectorAll('#period-start-chips .chip-item');
@@ -2272,14 +2715,14 @@ const app = {
       else if (!isStart && log && log.periodStarted === false && txt === 'না') c.classList.add('active');
     });
 
-    if (isStart && flowSection) {
+    // 2. Flow status
+    const flowVal = log?.flow || (activePeriodInDate ? activePeriodInDate.flow : '');
+    const showFlow = isStart || Boolean(flowVal) || Boolean(activePeriodInDate);
+    if (showFlow && flowSection) {
       flowSection.style.display = 'block';
     }
 
-    // 2. Flow status
-    const flowVal = log?.flow || (activePeriodInDate ? activePeriodInDate.flow : '');
     if (flowVal) {
-      if (flowSection) flowSection.style.display = 'block';
       document.querySelectorAll('#flow-chips .chip-item').forEach(c => {
         const text = c.textContent.trim();
         if (text.includes(flowVal) || flowVal.includes(text.replace(/[^\u0980-\u09FF]/g, '').trim())) {
@@ -2292,7 +2735,7 @@ const app = {
     let isEnd = false;
     if (log && typeof log.periodEnded === 'boolean') {
       isEnd = log.periodEnded;
-    } else if (!log && isPeriodEndInPeriods) {
+    } else if (isPeriodEndInPeriods) {
       isEnd = true;
     }
 
@@ -2325,20 +2768,38 @@ const app = {
     }
 
     // 6. Energy (1-10)
-    if (log && log.energy !== undefined) {
+    if (log && log.energy !== undefined && log.energy !== null) {
       let val = parseInt(log.energy, 10);
       if (val > 10) val = Math.min(10, Math.max(1, Math.round(val / 10)));
-      else val = Math.min(10, Math.max(1, val || 5));
+      else val = Math.min(10, Math.max(1, val));
       if (energyInput) energyInput.value = val;
+      this._hasUserSetEnergy = true;
       this.updateEnergyDisplay(val, false);
+    } else {
+      this._hasUserSetEnergy = false;
+      if (energyInput) energyInput.value = 5;
+      const energyValEl = document.getElementById('energy-val');
+      if (energyValEl) energyValEl.innerText = 'রেকর্ড করা হয়নি (৫/১০)';
     }
 
     // 7. Sleep Hours
-    if (log && log.sleepHours !== undefined) {
+    if (log && log.sleepHours !== undefined && log.sleepHours !== null) {
       let sHours = parseFloat(log.sleepHours);
-      if (isNaN(sHours) || sHours < 1 || sHours > 24) sHours = 7.5;
-      if (sleepHoursInput) sleepHoursInput.value = sHours;
-      this.updateSleepHoursDisplay(sHours, false);
+      if (!isNaN(sHours) && sHours >= 0 && sHours <= 24) {
+        if (sleepHoursInput) sleepHoursInput.value = sHours;
+        this._hasUserSetSleepHours = true;
+        this.updateSleepHoursDisplay(sHours, false);
+      } else {
+        this._hasUserSetSleepHours = false;
+        if (sleepHoursInput) sleepHoursInput.value = 7.5;
+        const sleepValEl = document.getElementById('sleep-hours-val');
+        if (sleepValEl) sleepValEl.innerText = 'রেকর্ড করা হয়নি (৭.৫ ঘণ্টা)';
+      }
+    } else {
+      this._hasUserSetSleepHours = false;
+      if (sleepHoursInput) sleepHoursInput.value = 7.5;
+      const sleepValEl = document.getElementById('sleep-hours-val');
+      if (sleepValEl) sleepValEl.innerText = 'রেকর্ড করা হয়নি (৭.৫ ঘণ্টা)';
     }
 
     // 8. Sleep Quality
@@ -2427,8 +2888,7 @@ const app = {
       if (parentId === 'flow-chips') {
         const startChips = document.querySelectorAll('#period-start-chips .chip-item');
         startChips.forEach(c => {
-          if (c.textContent.trim() === 'হ্যাঁ') c.classList.add('active');
-          else c.classList.remove('active');
+          if (c.textContent.trim() === 'না') c.classList.remove('active');
         });
         const flowSection = document.getElementById('flow-section');
         if (flowSection) flowSection.style.display = 'block';
@@ -2462,19 +2922,33 @@ const app = {
   },
 
   updateEnergyDisplay(val, markDirty = true) {
+    if (markDirty) {
+      this._hasUserSetEnergy = true;
+    }
     const energyVal = document.getElementById('energy-val');
     if (energyVal) {
-      energyVal.innerText = `শক্তি: ${toBanglaNumber(val)}/১০`;
+      if (this._hasUserSetEnergy) {
+        energyVal.innerText = `শক্তি: ${toBanglaNumber(val)}/১০`;
+      } else {
+        energyVal.innerText = `রেকর্ড করা হয়নি (${toBanglaNumber(val)}/১০)`;
+      }
     }
     if (markDirty) this.markLogDirty();
   },
 
   updateSleepHoursDisplay(val, markDirty = true) {
+    if (markDirty) {
+      this._hasUserSetSleepHours = true;
+    }
     const sleepVal = document.getElementById('sleep-hours-val');
     if (sleepVal) {
       const num = parseFloat(val);
       const str = (num % 1 === 0) ? String(parseInt(num, 10)) : num.toFixed(1);
-      sleepVal.innerText = `${toBanglaNumber(str)} ঘণ্টা`;
+      if (this._hasUserSetSleepHours) {
+        sleepVal.innerText = `${toBanglaNumber(str)} ঘণ্টা`;
+      } else {
+        sleepVal.innerText = `রেকর্ড করা হয়নি (${toBanglaNumber(str)} ঘণ্টা)`;
+      }
     }
     if (markDirty) this.markLogDirty();
   },
@@ -2527,10 +3001,10 @@ const app = {
     const mood = moodEl ? moodEl.textContent.trim() : '';
 
     const energyInput = document.getElementById('log-energy');
-    const energyVal = energyInput ? parseInt(energyInput.value, 10) : 5;
+    const energyVal = (this._hasUserSetEnergy && energyInput) ? parseInt(energyInput.value, 10) : null;
 
     const sleepHoursInput = document.getElementById('log-sleep-hours');
-    const sleepHours = sleepHoursInput ? parseFloat(sleepHoursInput.value) : 7.5;
+    const sleepHours = (this._hasUserSetSleepHours && sleepHoursInput) ? parseFloat(sleepHoursInput.value) : null;
 
     const sleepEl = document.querySelector('#sleep-chips .chip-item.active');
     const sleepQuality = sleepEl ? sleepEl.textContent.trim() : '';
@@ -2556,70 +3030,162 @@ const app = {
     this.saveData('fz_logs', STATE.logs);
 
     // Period synchronization with canonical STATE.periods
-    if (periodStarted || flow) {
-      if (!STATE.periods) STATE.periods = [];
-      const alreadyIn = STATE.periods.some(p => dStr >= (p.startDate || p.start) && dStr <= (p.endDate || p.end));
-      if (!alreadyIn) {
-        const dTime = new Date(dStr).getTime();
-        let extended = false;
-        for (let i = 0; i < STATE.periods.length; i++) {
-          const p = STATE.periods[i];
-          const pEndTime = new Date(p.endDate || p.end).getTime();
-          const pStartTime = new Date(p.startDate || p.start).getTime();
-          const diffEnd = Math.round((dTime - pEndTime) / (1000 * 60 * 60 * 24));
-          const diffStart = Math.round((pStartTime - dTime) / (1000 * 60 * 60 * 24));
-          if (diffEnd >= 1 && diffEnd <= 2) {
-            p.endDate = dStr;
-            p.end = dStr;
-            if (flow) p.flow = flow;
-            extended = true;
-            break;
-          } else if (diffStart >= 1 && diffStart <= 2) {
-            p.startDate = dStr;
-            p.start = dStr;
-            if (flow) p.flow = flow;
-            extended = true;
-            break;
-          }
-        }
-        if (!extended) {
-          STATE.periods.push({
-            startDate: dStr,
-            endDate: dStr,
-            flow: flow || 'মাঝারি',
-            start: dStr,
-            end: dStr
-          });
-        }
-        STATE.periods = this.validate('periods', STATE.periods);
-        this.saveData('fz_periods', STATE.periods);
-      } else {
-        const existingP = STATE.periods.find(p => dStr >= (p.startDate || p.start) && dStr <= (p.endDate || p.end));
-        if (existingP && flow) {
-          existingP.flow = flow;
-          this.saveData('fz_periods', STATE.periods);
+    if (!STATE.periods) STATE.periods = [];
+
+    // Validation: Period End cannot be before matching Period Start
+    if (periodEnded) {
+      // Find the open or active period record whose start is <= dStr
+      const candidateP = [...STATE.periods]
+        .filter(p => (p.startDate || p.start) && (p.startDate || p.start) <= dStr && !(p.endDate || p.end))
+        .sort((a, b) => parseLocalDate(b.startDate || b.start).getTime() - parseLocalDate(a.startDate || a.start).getTime())[0];
+
+      if (!candidateP) {
+        // Also check if there is an active closed period covering dStr or starting before dStr
+        const anyPrior = [...STATE.periods]
+          .filter(p => (p.startDate || p.start) && (p.startDate || p.start) <= dStr)
+          .sort((a, b) => parseLocalDate(b.startDate || b.start).getTime() - parseLocalDate(a.startDate || a.start).getTime())[0];
+
+        // Check if user is attempting to set an end date earlier than start date
+        const strictlyFuture = STATE.periods.find(p => (p.startDate || p.start) && (p.startDate || p.start) > dStr);
+        if (strictlyFuture && !anyPrior) {
+          this.showToast('পিরিয়ড শেষের তারিখ শুরুর তারিখের আগে হতে পারবে না।');
+          this.safeVibrate([50, 50, 50]);
+          return;
         }
       }
     }
 
-    if (periodEnded && STATE.periods) {
-      const pToClose = STATE.periods.find(p => dStr >= (p.startDate || p.start) && dStr <= (p.endDate || p.end));
+    if (periodStarted) {
+      // Find if dStr is already inside any period
+      const existing = STATE.periods.find(p => {
+        const s = p.startDate || p.start;
+        const e = p.endDate || p.end;
+        if (!s) return false;
+        if (e) return dStr >= s && dStr <= e;
+        return dStr >= s;
+      });
+
+      if (existing) {
+        // Update existing record
+        if (flow) existing.flow = flow;
+        // If it starts after dStr, update its start
+        if ((existing.startDate || existing.start) > dStr) {
+          existing.startDate = dStr;
+          existing.start = dStr;
+        }
+      } else {
+        // Create new period record starting at dStr
+        STATE.periods.push({
+          startDate: dStr,
+          endDate: null,
+          flow: flow || 'মাঝারি',
+          start: dStr,
+          end: null
+        });
+      }
+    }
+
+    if (periodEnded) {
+      // Find the active period whose start date is on or before the selected date and which does not already have an end date
+      let pToClose = [...STATE.periods]
+        .filter(p => (p.startDate || p.start) && (p.startDate || p.start) <= dStr && !(p.endDate || p.end))
+        .sort((a, b) => parseLocalDate(b.startDate || b.start).getTime() - parseLocalDate(a.startDate || a.start).getTime())[0];
+
+      if (!pToClose) {
+        // If no open period, check if there is a period containing dStr whose end date can be updated to dStr
+        pToClose = [...STATE.periods]
+          .filter(p => (p.startDate || p.start) && (p.startDate || p.start) <= dStr)
+          .sort((a, b) => parseLocalDate(b.startDate || b.start).getTime() - parseLocalDate(a.startDate || a.start).getTime())[0];
+      }
+
       if (pToClose) {
         pToClose.endDate = dStr;
         pToClose.end = dStr;
-        this.saveData('fz_periods', STATE.periods);
+        if (flow) pToClose.flow = flow;
+      } else {
+        // If user logged period end without an earlier start, create an interval [dStr -> dStr]
+        STATE.periods.push({
+          startDate: dStr,
+          endDate: dStr,
+          flow: flow || 'মাঝারি',
+          start: dStr,
+          end: dStr
+        });
       }
     }
 
-    if (startActive && startActive.textContent.trim() === 'না' && !flow && STATE.periods) {
-      const idx = STATE.periods.findIndex(p => (p.startDate || p.start) === dStr && (p.endDate || p.end) === dStr);
-      if (idx !== -1) {
-        STATE.periods.splice(idx, 1);
-        this.saveData('fz_periods', STATE.periods);
+    // Flow sync for active period if neither periodStarted nor periodEnded was explicitly clicked
+    if (!periodStarted && !periodEnded && flow) {
+      const activeP = STATE.periods.find(p => {
+        const s = p.startDate || p.start;
+        const e = p.endDate || p.end;
+        if (!s) return false;
+        if (e) return dStr >= s && dStr <= e;
+        return dStr >= s;
+      });
+      if (activeP) {
+        activeP.flow = flow;
+      } else {
+        STATE.periods.push({
+          startDate: dStr,
+          endDate: null,
+          flow: flow,
+          start: dStr,
+          end: null
+        });
       }
     }
 
-    this.calculatePredictions();
+    // Removing period status: if explicitly set to "না" and no flow
+    if (startActive && startActive.textContent.trim() === 'না' && !flow) {
+      // 1. If dStr is the exact start date of a period
+      const exactStartP = STATE.periods.find(p => (p.startDate || p.start) === dStr);
+      if (exactStartP) {
+        if (!exactStartP.endDate && !exactStartP.end) {
+          // Single-point open period with no end -> remove safely
+          STATE.periods = STATE.periods.filter(p => p !== exactStartP);
+        } else {
+          const eStr = exactStartP.endDate || exactStartP.end;
+          if (eStr === dStr) {
+            // 1-day period [dStr, dStr] -> remove safely
+            STATE.periods = STATE.periods.filter(p => p !== exactStartP);
+          } else {
+            // Multi-day period -> advance start date by +1 day so dStr is removed from period
+            const nextStart = getLocalDateString(addDays(parseLocalDate(dStr), 1));
+            if (nextStart <= eStr) {
+              exactStartP.startDate = nextStart;
+              exactStartP.start = nextStart;
+            } else {
+              STATE.periods = STATE.periods.filter(p => p !== exactStartP);
+            }
+          }
+        }
+      } else {
+        // 2. Check if dStr is the exact end date
+        const exactEndP = STATE.periods.find(p => (p.endDate || p.end) === dStr);
+        if (exactEndP) {
+          const prevEnd = getLocalDateString(addDays(parseLocalDate(dStr), -1));
+          const sStr = exactEndP.startDate || exactEndP.start;
+          if (prevEnd >= sStr) {
+            exactEndP.endDate = prevEnd;
+            exactEndP.end = prevEnd;
+          } else {
+            STATE.periods = STATE.periods.filter(p => p !== exactEndP);
+          }
+        }
+      }
+    }
+
+    STATE.periods = this.validate('periods', STATE.periods);
+    this.saveData('fz_periods', STATE.periods);
+
+    if (STATE.profile && STATE.periods.length > 0) {
+      const latestP = STATE.periods[STATE.periods.length - 1];
+      STATE.profile.lastPeriodStart = latestP.startDate || latestP.start;
+      this.saveData('fz_profile', STATE.profile);
+    }
+
+    this.calculatePredictions(true);
     this.updateStreak();
     this.isLogDirty = false;
     this.isEditingNotes = false;
@@ -2676,34 +3242,77 @@ const app = {
 
   calculatePhaseForDate(dateStr) {
     const d = parseLocalDate(dateStr);
-    if (!d) return null;
-    const periods = STATE.periods || [];
-    const pLen = STATE.profile?.periodLength || 5;
-    const cLen = STATE.profile?.cycleLength || 28;
+    if (!d || isNaN(d.getTime())) return null;
 
-    for (const p of periods) {
-      const s = parseLocalDate(p.startDate || p.start);
-      const e = parseLocalDate(p.endDate || p.end) || addDays(s, pLen - 1);
-      if (s && e && d >= s && d <= e) return "মাসিকের সময়";
-    }
+    const periods = (STATE.periods || []).filter(p => {
+      const s = parseLocalDate(p?.startDate || p?.start);
+      return s && !isNaN(s.getTime());
+    });
+    const pLen = Math.min(Math.max(parseInt(STATE.profile?.periodLength, 10) || 5, 2), 12);
+    const cLen = Math.min(Math.max(parseInt(STATE.profile?.cycleLength, 10) || 28, 20), 45);
 
+    // Find prior period anchor on or before date d
     const priorPeriod = [...periods]
       .filter(p => {
         const s = parseLocalDate(p.startDate || p.start);
         return s && s <= d;
       })
-      .sort((a, b) => new Date(b.startDate || b.start) - new Date(a.startDate || a.start))[0];
+      .sort((a, b) => parseLocalDate(b.startDate || b.start).getTime() - parseLocalDate(a.startDate || a.start).getTime())[0];
 
-    if (!priorPeriod) return null;
+    const priorStart = priorPeriod
+      ? parseLocalDate(priorPeriod.startDate || priorPeriod.start)
+      : (STATE.profile?.lastPeriodStart && parseLocalDate(STATE.profile.lastPeriodStart) <= d ? parseLocalDate(STATE.profile.lastPeriodStart) : null);
 
-    const s = parseLocalDate(priorPeriod.startDate || priorPeriod.start);
-    const dayInCycle = diffInDays(d, s) + 1;
-    const ovulDay = Math.max(10, cLen - 14);
+    if (!priorStart) {
+      // Delegate to canonical phase calculation
+      const fallbackResult = this.calculateCurrentPhase({
+        today: d,
+        allPeriods: periods,
+        latestPeriodStart: null,
+        periodLength: pLen,
+        ovulationDate: null,
+        fertileStartDate: null,
+        fertileEndDate: null,
+        nextPeriodStart: null,
+        isOverdue: false,
+        overdueDays: 0
+      });
+      return fallbackResult ? fallbackResult.phaseName : null;
+    }
 
-    if (dayInCycle <= pLen) return "মাসিকের সময়";
-    if (dayInCycle >= ovulDay - 1 && dayInCycle <= ovulDay + 1) return "ডিম্বস্ফোটনের সময়";
-    if (dayInCycle < ovulDay - 1) return "ফলিকুলার পর্যায়";
-    return "লুটিয়াল পর্যায়";
+    // Determine next period start for that cycle
+    const nextPeriod = periods
+      .filter(p => {
+        const s = parseLocalDate(p.startDate || p.start);
+        return s && s > priorStart;
+      })
+      .sort((a, b) => parseLocalDate(a.startDate || a.start).getTime() - parseLocalDate(b.startDate || b.start).getTime())[0];
+
+    const cycleNextPeriodStart = nextPeriod
+      ? parseLocalDate(nextPeriod.startDate || nextPeriod.start)
+      : addDays(priorStart, cLen);
+
+    const ovulationDate = this.calculateOvulation(cycleNextPeriodStart);
+    const fertileWindow = this.calculateFertileWindow(ovulationDate);
+
+    const isOverdue = !nextPeriod && d > cycleNextPeriodStart;
+    const overdueDays = isOverdue ? diffInDays(d, cycleNextPeriodStart) : 0;
+
+    // Canonical phase calculation call
+    const phaseResult = this.calculateCurrentPhase({
+      today: d,
+      allPeriods: periods,
+      latestPeriodStart: priorStart,
+      periodLength: pLen,
+      ovulationDate,
+      fertileStartDate: fertileWindow.fertileStartDate,
+      fertileEndDate: fertileWindow.fertileEndDate,
+      nextPeriodStart: cycleNextPeriodStart,
+      isOverdue,
+      overdueDays
+    });
+
+    return phaseResult ? phaseResult.phaseName : null;
   },
 
   renderAnalytics() {
@@ -2714,7 +3323,7 @@ const app = {
       Chart.defaults.scale.grid.color = this.getThemeColor('--border') || '#EEEEEE';
     }
 
-    const p = this.predictions || this.calculatePredictions();
+    const p = this.calculatePredictions();
     const periods = [...(STATE.periods || [])].sort((a, b) => new Date(a.startDate || a.start) - new Date(b.startDate || b.start));
     const logs = STATE.logs || {};
 
@@ -2732,12 +3341,26 @@ const app = {
       if (predFw) {
         predFw.innerText = `${formatBanglaShortDate(p.fertileStartDate)} – ${formatBanglaShortDate(p.fertileEndDate)}`;
       }
-      if (predMsg) predMsg.style.display = 'none';
+      if (predMsg) {
+        predMsg.innerText = `নির্ভরযোগ্যতা: ${p.confidenceLevel} (${toBanglaNumber(p.confidenceScore)}%)`;
+        predMsg.style.display = 'block';
+      }
+    } else if (p && p.isOverdue) {
+      if (predNext) predNext.innerText = `${toBanglaNumber(p.overdueDays)} দিন বিলম্বিত`;
+      if (predOvul) predOvul.innerText = '-';
+      if (predFw) predFw.innerText = '-';
+      if (predMsg) {
+        predMsg.innerText = p.overdueDate ? `সম্ভাব্য তারিখ (${formatBanglaShortDate(p.overdueDate)}) পেরিয়ে গেছে। নতুন পিরিয়ড শুরু হলে লগ করো 🌸` : 'পিরিয়ডের সম্ভাব্য তারিখ পেরিয়ে গেছে।';
+        predMsg.style.display = 'block';
+      }
     } else {
       if (predNext) predNext.innerText = '-';
       if (predOvul) predOvul.innerText = '-';
       if (predFw) predFw.innerText = '-';
-      if (predMsg) predMsg.style.display = 'block';
+      if (predMsg) {
+        predMsg.innerText = 'আরও তথ্য যোগ করলে পরের সময়ের হিসাব দেখানো যাবে।';
+        predMsg.style.display = 'block';
+      }
     }
 
     // 2. Statistics Grid (সংক্ষিপ্ত পরিসংখ্যান)
@@ -2844,8 +3467,13 @@ const app = {
 
     // A. ঘুম বনাম শক্তি (Sleep vs Energy)
     const sleepEnergyLogs = deepLogs.filter(l => {
-      const { sleep, sleepHours, energy } = l.data;
-      return (sleep || sleepHours !== undefined) && energy !== undefined;
+      const d = l.data;
+      if (!d) return false;
+      const hasSleep = (typeof d.sleepHours === 'number' && !isNaN(d.sleepHours) && d.sleepHours > 0) ||
+                       (typeof d.sleep === 'string' && d.sleep.trim().length > 0) ||
+                       (typeof d.sleepQuality === 'string' && d.sleepQuality.trim().length > 0);
+      const hasEnergy = typeof d.energy === 'number' && !isNaN(d.energy) && d.energy >= 1 && d.energy <= 10;
+      return hasSleep && hasEnergy;
     });
 
     if (sleepEnergyLogs.length >= 3) {
@@ -2853,10 +3481,13 @@ const app = {
       let goodSleepEnergySum = 0, goodSleepCount = 0;
 
       sleepEnergyLogs.forEach(l => {
-        const { sleep, sleepHours, energy } = l.data;
-        const eVal = energy > 10 ? Math.round(energy / 10) : energy;
-        const isLowSleep = (sleepHours && sleepHours < 7) || (sleep && (sleep.includes('কম') || sleep.includes('খারাপ')));
-        const isGoodSleep = (sleepHours && sleepHours >= 7.5) || (sleep && sleep.includes('ভালো'));
+        const { sleep, sleepHours, sleepQuality, energy } = l.data;
+        const eVal = energy;
+        const rawSleep = sleepQuality || sleep;
+        const isLowSleep = (typeof sleepHours === 'number' && sleepHours < 7) ||
+                           (typeof rawSleep === 'string' && (rawSleep.includes('কম') || rawSleep.includes('খারাপ')));
+        const isGoodSleep = (typeof sleepHours === 'number' && sleepHours >= 7.5) ||
+                            (typeof rawSleep === 'string' && rawSleep.includes('ভালো'));
 
         if (isLowSleep) {
           lowSleepEnergySum += eVal;
@@ -2899,8 +3530,13 @@ const app = {
 
     // B. ঘুম বনাম মেজাজ (Sleep vs Mood)
     const sleepMoodLogs = deepLogs.filter(l => {
-      const { sleep, sleepHours, mood } = l.data;
-      return (sleep || sleepHours !== undefined) && mood;
+      const d = l.data;
+      if (!d) return false;
+      const hasSleep = (typeof d.sleepHours === 'number' && !isNaN(d.sleepHours) && d.sleepHours > 0) ||
+                       (typeof d.sleep === 'string' && d.sleep.trim().length > 0) ||
+                       (typeof d.sleepQuality === 'string' && d.sleepQuality.trim().length > 0);
+      const hasMood = typeof d.mood === 'string' && d.mood.trim().length > 0;
+      return hasSleep && hasMood;
     });
 
     if (sleepMoodLogs.length >= 3) {
@@ -2908,9 +3544,12 @@ const app = {
       let goodSleepPositiveMood = 0;
 
       sleepMoodLogs.forEach(l => {
-        const { sleep, sleepHours, mood } = l.data;
-        const isLowSleep = (sleepHours && sleepHours < 7) || (sleep && (sleep.includes('কম') || sleep.includes('খারাপ')));
-        const isGoodSleep = (sleepHours && sleepHours >= 7.5) || (sleep && sleep.includes('ভালো'));
+        const { sleep, sleepHours, sleepQuality, mood } = l.data;
+        const rawSleep = sleepQuality || sleep;
+        const isLowSleep = (typeof sleepHours === 'number' && sleepHours < 7) ||
+                           (typeof rawSleep === 'string' && (rawSleep.includes('কম') || rawSleep.includes('খারাপ')));
+        const isGoodSleep = (typeof sleepHours === 'number' && sleepHours >= 7.5) ||
+                            (typeof rawSleep === 'string' && rawSleep.includes('ভালো'));
 
         if (isLowSleep && (mood.includes('কষ্টে') || mood.includes('বিরক্ত') || mood.includes('উদ্বিগ্ন') || mood.includes('হতাশ') || mood.includes('রাগী'))) {
           lowSleepNegativeMood++;
@@ -2948,7 +3587,10 @@ const app = {
     }
 
     // C. লক্ষণ বনাম সাইকেলের পর্যায় (Symptoms vs Cycle Phase)
-    const logsWithSymptoms = deepLogs.filter(l => l.data.symptoms && Array.isArray(l.data.symptoms) && l.data.symptoms.length > 0);
+    const logsWithSymptoms = deepLogs.filter(l => {
+      const s = l.data?.symptoms;
+      return Array.isArray(s) && s.length > 0 && s.some(sym => typeof sym === 'string' && sym.trim() && !sym.includes('কোনো সমস্যা নেই'));
+    });
     if (logsWithSymptoms.length >= 3) {
       const phaseSymptoms = {};
       logsWithSymptoms.forEach(l => {
@@ -2957,8 +3599,9 @@ const app = {
         if (phaseName) {
           if (!phaseSymptoms[phaseName]) phaseSymptoms[phaseName] = {};
           l.data.symptoms.forEach(s => {
-            if (s && !s.includes('কোনো সমস্যা নেই')) {
-              phaseSymptoms[phaseName][s] = (phaseSymptoms[phaseName][s] || 0) + 1;
+            if (typeof s === 'string' && s.trim() && !s.includes('কোনো সমস্যা নেই')) {
+              const cleanS = s.trim();
+              phaseSymptoms[phaseName][cleanS] = (phaseSymptoms[phaseName][cleanS] || 0) + 1;
             }
           });
         }
@@ -2982,7 +3625,7 @@ const app = {
               <span style="font-size: 1.6rem;">🔍</span>
               <div>
                 <h4 style="font-size: 0.95rem; font-weight: 600; margin-bottom: 2px;">লক্ষণ ও সাইকেল পর্যায়</h4>
-                <p style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.45; margin: 0;">তোমার ${topPhase}-এ '${topSymp}' লক্ষণটি একটু বেশি দেখা গেছে (${toBanglaNumber(maxCount)} বার)। এই সময়ে হালকা বিশ্রাম ও যত্ন তোমাকে স্বস্তি দেবে।</p>
+                <p style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.45; margin: 0;">তোমার ${topPhase}-এ '${escapeHTML(topSymp)}' লক্ষণটি একটু বেশি দেখা গেছে (${toBanglaNumber(maxCount)} বার)। এই সময়ে হালকা বিশ্রাম ও যত্ন তোমাকে স্বস্তি দেবে।</p>
               </div>
             </div>
           </div>
@@ -2995,18 +3638,18 @@ const app = {
     if (periods.length > 0 && deepLogs.length >= 3) {
       let pmsCount = 0;
       const pmsKeywords = ['মাথাব্যথা', 'পেট ফোলা', 'পিঠে ব্যথা', 'ব্যথা', 'ক্লান্তি', 'খাবারের ইচ্ছা'];
-      const pmsShiftKeywords = ['বিরক্ত', 'কষ্টে', 'উদ্বিগ্ন'];
+      const pmsShiftKeywords = ['বিরক্ত', 'কষ্টে', 'উদ্বিগ্ন', 'হতাশ'];
 
       periods.forEach(p => {
         const start = parseLocalDate(p.startDate || p.start);
-        if (start) {
+        if (start && !isNaN(start.getTime())) {
           for (let daysBefore = 1; daysBefore <= 5; daysBefore++) {
             const checkD = addDays(start, -daysBefore);
             const checkDStr = getLocalDateString(checkD);
             const checkLog = logs[checkDStr];
             if (checkLog) {
-              const hasPmsSymp = checkLog.symptoms && checkLog.symptoms.some(s => pmsKeywords.some(kw => s.includes(kw)));
-              const hasPmsMood = checkLog.mood && pmsShiftKeywords.some(kw => checkLog.mood.includes(kw));
+              const hasPmsSymp = Array.isArray(checkLog.symptoms) && checkLog.symptoms.some(s => typeof s === 'string' && pmsKeywords.some(kw => s.includes(kw)));
+              const hasPmsMood = typeof checkLog.mood === 'string' && pmsShiftKeywords.some(kw => checkLog.mood.includes(kw));
               if (hasPmsSymp || hasPmsMood) {
                 pmsCount++;
                 break;
@@ -3032,7 +3675,7 @@ const app = {
     }
 
     // E. Mood patterns (মেজাজের ধরন প্যাটার্ন)
-    const moodLogs = deepLogs.filter(l => l.data.mood);
+    const moodLogs = deepLogs.filter(l => typeof l.data?.mood === 'string' && l.data.mood.trim().length > 0);
     if (moodLogs.length >= 3) {
       let positiveCount = 0;
       let stressCount = 0;
@@ -3376,9 +4019,9 @@ const app = {
           </div>
           <div style="display: flex; align-items: center; gap: 8px;">
             <span style="font-size: 1.4rem;">${emoji}</span>
-            <span style="font-size: 0.9rem; font-weight: 500; color: var(--text-main);">${moodText}</span>
+            <span style="font-size: 0.9rem; font-weight: 500; color: var(--text-main);">${escapeHTML(moodText)}</span>
           </div>
-          ${notePreview ? `<p style="margin: 8px 0 0 0; font-size: 0.82rem; color: var(--text-muted); font-style: italic; background: color-mix(in srgb, var(--primary) 4%, transparent); padding: 6px 10px; border-radius: 8px; line-height: 1.4;">“${notePreview}”</p>` : ''}
+          ${notePreview ? `<p style="margin: 8px 0 0 0; font-size: 0.82rem; color: var(--text-muted); font-style: italic; background: color-mix(in srgb, var(--primary) 4%, transparent); padding: 6px 10px; border-radius: 8px; line-height: 1.4;">“${escapeHTML(notePreview)}”</p>` : ''}
         </div>
       `;
     });
@@ -3389,6 +4032,30 @@ const app = {
   // ==========================================
   // 10. SETTINGS VIEW (CANONICAL)
   // ==========================================
+  onSettingsAgeInput(val) {
+    const ageDisplayEl = document.getElementById('settings-age-display');
+    const num = parseInt(val, 10);
+    if (ageDisplayEl) {
+      ageDisplayEl.innerText = (!isNaN(num) && num >= 10 && num <= 65) ? `${toBanglaNumber(num)} বছর` : '';
+    }
+  },
+
+  onSettingsCycleChange(val) {
+    const cycleDisplayEl = document.getElementById('settings-cycle-display');
+    const num = parseInt(val, 10);
+    if (cycleDisplayEl) {
+      cycleDisplayEl.innerText = `${toBanglaNumber(num)} দিন`;
+    }
+  },
+
+  onSettingsPeriodChange(val) {
+    const periodDisplayEl = document.getElementById('settings-period-display');
+    const num = parseInt(val, 10);
+    if (periodDisplayEl) {
+      periodDisplayEl.innerText = `${toBanglaNumber(num)} দিন`;
+    }
+  },
+
   saveSettingsProfile() {
     if (!STATE.profile) {
       STATE.profile = {
@@ -3402,16 +4069,35 @@ const app = {
     }
     const nameEl = document.getElementById('settings-name');
     const ageEl = document.getElementById('settings-age');
-    if (!nameEl && !ageEl) return;
+    const cycleEl = document.getElementById('settings-cycle-length');
+    const periodEl = document.getElementById('settings-period-length');
+    if (!nameEl && !ageEl && !cycleEl && !periodEl) return;
 
     const newName = nameEl?.value ?? '';
     const newAgeVal = ageEl?.value;
     const newAgeNum = parseInt(newAgeVal, 10);
+    const newCycleNum = parseInt(cycleEl?.value, 10);
+    const newPeriodNum = parseInt(periodEl?.value, 10);
+
     STATE.profile.name = newName.trim() || 'ব্যবহারকারী';
     STATE.profile.age = !isNaN(newAgeNum) && newAgeNum >= 10 && newAgeNum <= 65 ? newAgeNum : null;
+    if (!isNaN(newCycleNum) && newCycleNum >= 21 && newCycleNum <= 45) {
+      STATE.profile.cycleLength = newCycleNum;
+    }
+    if (!isNaN(newPeriodNum) && newPeriodNum >= 2 && newPeriodNum <= 10) {
+      STATE.profile.periodLength = newPeriodNum;
+    }
+
     STATE.profile = this.validate('profile', STATE.profile);
     this.saveData('fz_profile', STATE.profile);
+
+    // Invalidate prediction cache so shared Prediction Engine automatically recomputes
+    this.predictions = null;
+    this.calculatePredictions(true);
+
     this.renderHome();
+    this.renderCalendar();
+    this.renderSettings();
     this.showToast('✅ প্রোফাইল তথ্য আপডেট হয়েছে');
   },
 
@@ -3419,12 +4105,20 @@ const app = {
     if (!STATE.profile) return;
     const nameEl = document.getElementById('settings-name');
     const ageEl = document.getElementById('settings-age');
-    if (!nameEl && !ageEl) return;
+    const cycleEl = document.getElementById('settings-cycle-length');
+    const periodEl = document.getElementById('settings-period-length');
+    if (!nameEl && !ageEl && !cycleEl && !periodEl) return;
+
     const newName = nameEl?.value?.trim() || 'ব্যবহারকারী';
     const ageVal = ageEl?.value;
     const newAgeNum = parseInt(ageVal, 10);
     const validAge = !isNaN(newAgeNum) && newAgeNum >= 10 && newAgeNum <= 65 ? newAgeNum : null;
-    if (newName !== STATE.profile.name || validAge !== STATE.profile.age) {
+    const newCycleNum = parseInt(cycleEl?.value, 10);
+    const validCycle = !isNaN(newCycleNum) && newCycleNum >= 21 && newCycleNum <= 45 ? newCycleNum : (STATE.profile.cycleLength || 28);
+    const newPeriodNum = parseInt(periodEl?.value, 10);
+    const validPeriod = !isNaN(newPeriodNum) && newPeriodNum >= 2 && newPeriodNum <= 10 ? newPeriodNum : (STATE.profile.periodLength || 5);
+
+    if (newName !== STATE.profile.name || validAge !== STATE.profile.age || validCycle !== STATE.profile.cycleLength || validPeriod !== STATE.profile.periodLength) {
       this.saveSettingsProfile();
     }
   },
@@ -3433,8 +4127,29 @@ const app = {
     if (STATE.profile) {
       const nameEl = document.getElementById('settings-name');
       if (nameEl) nameEl.value = STATE.profile.name || '';
+
       const ageEl = document.getElementById('settings-age');
       if (ageEl) ageEl.value = STATE.profile.age != null ? STATE.profile.age : '';
+      const ageDisplayEl = document.getElementById('settings-age-display');
+      if (ageDisplayEl) {
+        ageDisplayEl.innerText = STATE.profile.age != null ? `${toBanglaNumber(STATE.profile.age)} বছর` : '';
+      }
+
+      const cycleEl = document.getElementById('settings-cycle-length');
+      const currentCycle = STATE.profile.cycleLength || 28;
+      if (cycleEl) cycleEl.value = currentCycle;
+      const cycleDisplayEl = document.getElementById('settings-cycle-display');
+      if (cycleDisplayEl) {
+        cycleDisplayEl.innerText = `${toBanglaNumber(currentCycle)} দিন`;
+      }
+
+      const periodEl = document.getElementById('settings-period-length');
+      const currentPeriod = STATE.profile.periodLength || 5;
+      if (periodEl) periodEl.value = currentPeriod;
+      const periodDisplayEl = document.getElementById('settings-period-display');
+      if (periodDisplayEl) {
+        periodDisplayEl.innerText = `${toBanglaNumber(currentPeriod)} দিন`;
+      }
     }
 
     const currentMode = STATE.settings?.displayMode || 'light';
@@ -3470,6 +4185,21 @@ const app = {
       }
     });
 
+    // Accessibility toggles
+    const accPrefs = STATE.settings?.accessibilityPreferences || STATE.settings?.accessibility || {};
+    const largeTextToggle = document.getElementById('large-text-toggle');
+    if (largeTextToggle) {
+      largeTextToggle.classList.toggle('active', Boolean(accPrefs.largeText));
+    }
+    const highContrastToggle = document.getElementById('high-contrast-toggle');
+    if (highContrastToggle) {
+      highContrastToggle.classList.toggle('active', Boolean(accPrefs.highContrast));
+    }
+    const reducedMotionToggle = document.getElementById('reduced-motion-toggle');
+    if (reducedMotionToggle) {
+      reducedMotionToggle.classList.toggle('active', Boolean(accPrefs.reducedMotion));
+    }
+
     const pinToggle = document.getElementById('pin-toggle');
     const changePinWrapper = document.getElementById('change-pin-wrapper');
     if (pinToggle) {
@@ -3485,6 +4215,7 @@ const app = {
     const reminderToggle = document.getElementById('reminder-toggle');
     const reminderTimeWrapper = document.getElementById('reminder-time-wrapper');
     const reminderTimeInput = document.getElementById('reminder-time');
+    const reminderStatusMsg = document.getElementById('reminder-status-msg');
 
     if (reminderToggle) {
       if (STATE.settings?.remindersEnabled) {
@@ -3498,6 +4229,39 @@ const app = {
 
     if (reminderTimeInput && STATE.settings?.reminderTime) {
       reminderTimeInput.value = STATE.settings.reminderTime;
+    }
+
+    // Render reminder type chips
+    const prefs = STATE.settings?.notificationPreferences || {};
+    document.querySelectorAll('#reminder-types-group .chip-item').forEach(chip => {
+      const type = chip.dataset.type;
+      if (type && prefs[type] !== false) {
+        chip.classList.add('active');
+      } else {
+        chip.classList.remove('active');
+      }
+    });
+
+    // Render honest capability and permission status message
+    if (reminderStatusMsg) {
+      const caps = this.getNotificationCapabilities();
+      if (!STATE.settings?.remindersEnabled) {
+        reminderStatusMsg.innerText = 'রিমাইন্ডার বন্ধ আছে।';
+      } else if (!caps.hasNotificationAPI || caps.permission === 'unsupported') {
+        reminderStatusMsg.innerText = '🌸 এই ডিভাইসে ব্রাউজার নোটিফিকেশন সীমাবদ্ধ; প্রতিদিন অ্যাপ ওপেন করলেই ইন-অ্যাপ রিমাইন্ডার দেখতে পাবেন।';
+      } else if (caps.permission === 'denied') {
+        reminderStatusMsg.innerText = '⚠️ ব্রাউজারে নোটিফিকেশন পারমিশন বন্ধ আছে। অ্যাপ খুললেই ইন-অ্যাপ রিমাইন্ডার দেখতে পাবেন 🌸';
+      } else if (caps.permission === 'granted') {
+        if (caps.backgroundDeliverySupported) {
+          reminderStatusMsg.innerText = '🌸 নোটিফিকেশন সক্রিয় আছে (সার্ভিস ওয়ার্কারের মাধ্যমে)।';
+        } else if (caps.isWebView) {
+          reminderStatusMsg.innerText = '🌸 ওয়েবভিউ মোডে অ্যাপ খুললে রিমাইন্ডার প্রদর্শিত হবে।';
+        } else {
+          reminderStatusMsg.innerText = '🌸 নোটিফিকেশন অনুমতি সক্রিয়। ব্রাউজার বন্ধ থাকলে অ্যাপে প্রবেশ করলেই রিমাইন্ডার দেখতে পাবেন।';
+        }
+      } else {
+        reminderStatusMsg.innerText = '🌸 নির্দিষ্ট সময়ে নোটিফিকেশন পেতে অনুমতি দিন।';
+      }
     }
   },
 
@@ -3660,7 +4424,7 @@ const app = {
   // 12. WELLNESS & EDUCATION (INTERNAL)
   // ==========================================
   openWellness() {
-    const p = this.predictions || this.calculatePredictions();
+    const p = this.calculatePredictions();
     const phaseName = p?.phaseName || "মাসিকের সময়";
     let contentHtml = "";
 
@@ -3797,43 +4561,143 @@ const app = {
   },
 
   // ==========================================
-  // 13. REMINDER & NOTIFICATION SYSTEM
+  // 13. REMINDER & NOTIFICATION SYSTEM (CANONICAL)
   // ==========================================
+  getNotificationCapabilities() {
+    const ua = (typeof navigator !== 'undefined' ? navigator.userAgent : '').toLowerCase();
+    const isIOS = /iphone|ipad|ipod/.test(ua) || (typeof navigator !== 'undefined' && navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const isAndroid = /android/.test(ua);
+    const isWebView = /wv|webview/.test(ua) || (isAndroid && /version\/[\d.]+/i.test(ua));
+
+    const isStandalone = typeof window !== 'undefined' && Boolean(
+      window.matchMedia?.('(display-mode: standalone)')?.matches ||
+      window.navigator?.standalone === true ||
+      document.referrer?.includes('android-app://')
+    );
+
+    const hasNotificationAPI = typeof window !== 'undefined' && 'Notification' in window;
+    const hasServiceWorker = typeof navigator !== 'undefined' && 'serviceWorker' in navigator;
+
+    let permission = 'unsupported';
+    if (hasNotificationAPI) {
+      permission = Notification.permission || 'default'; // 'default' | 'granted' | 'denied'
+    }
+
+    // True background delivery capability:
+    // Standalone Android PWA with active SW notification capability can receive SW notifications.
+    // Standard web browser tabs, iOS Web, and Android WebViews without native push bridges
+    // cannot guarantee timers when the app is suspended/closed.
+    const backgroundDeliverySupported = Boolean(!isWebView && !isIOS && isStandalone && hasServiceWorker && hasNotificationAPI);
+
+    return {
+      isIOS,
+      isAndroid,
+      isWebView,
+      isStandalone,
+      hasNotificationAPI,
+      hasServiceWorker,
+      permission,
+      backgroundDeliverySupported
+    };
+  },
+
   toggleReminder() {
     if (!STATE.settings) STATE.settings = {};
     const enabled = !STATE.settings.remindersEnabled;
+    const caps = this.getNotificationCapabilities();
 
     if (enabled) {
-      if (!("Notification" in window)) {
-        this.showToast('আপনার ব্রাউজার নোটিফিকেশন সাপোর্ট করে না');
+      if (!caps.hasNotificationAPI || caps.permission === 'unsupported') {
+        // Device doesn't support Web Notifications -> Graceful in-app fallback
+        STATE.settings.remindersEnabled = true;
+        if (!STATE.settings.reminderTime) STATE.settings.reminderTime = "08:00";
+        this.saveSettingsNotificationState();
+        this.renderSettings();
+        this.showToast('🌸 ইন-অ্যাপ রিমাইন্ডার চালু হয়েছে (অ্যাপ খুললেই দেখতে পাবেন)');
+        this.startReminderService();
         return;
       }
+
+      if (caps.permission === 'denied') {
+        // Do NOT repeatedly prompt if user previously denied permission
+        STATE.settings.remindersEnabled = true;
+        if (!STATE.settings.reminderTime) STATE.settings.reminderTime = "08:00";
+        this.saveSettingsNotificationState();
+        this.renderSettings();
+        this.showToast('🌸 ইন-অ্যাপ রিমাইন্ডার চালু আছে (ব্রাউজার নোটিফিকেশন বন্ধ)');
+        this.startReminderService();
+        return;
+      }
+
+      if (caps.permission === 'granted') {
+        STATE.settings.remindersEnabled = true;
+        if (!STATE.settings.reminderTime) STATE.settings.reminderTime = "08:00";
+        this.saveSettingsNotificationState();
+        this.renderSettings();
+        this.showToast('🌸 রিমাইন্ডার চালু হয়েছে');
+        this.startReminderService();
+        return;
+      }
+
+      // If 'default' (not yet requested), request once safely
       try {
         Notification.requestPermission().then(permission => {
+          STATE.settings.remindersEnabled = true;
+          if (!STATE.settings.reminderTime) STATE.settings.reminderTime = "08:00";
+          this.saveSettingsNotificationState();
+          this.renderSettings();
           if (permission === 'granted') {
-            STATE.settings.remindersEnabled = true;
-            if (!STATE.settings.reminderTime) STATE.settings.reminderTime = "08:00";
-            STATE.settings = this.validate('settings', STATE.settings);
-            this.saveData('fz_settings', STATE.settings);
-            this.renderSettings();
-            this.showToast('🌸 রিমাইন্ডার চালু হয়েছে');
-            this.startReminderService();
+            this.showToast('🌸 নোটিফিকেশন রিমাইন্ডার চালু হয়েছে');
           } else {
-            this.showToast('নোটিফিকেশন পারমিশন পাওয়া যায়নি');
+            this.showToast('🌸 ইন-অ্যাপ রিমাইন্ডার চালু থাকবে');
           }
+          this.startReminderService();
         }).catch(() => {
-          this.showToast('নোটিফিকেশন সেটআপে সমস্যা হয়েছে');
+          STATE.settings.remindersEnabled = true;
+          this.saveSettingsNotificationState();
+          this.renderSettings();
+          this.showToast('🌸 ইন-অ্যাপ রিমাইন্ডার চালু থাকবে');
+          this.startReminderService();
         });
       } catch (e) {
-        this.showToast('নোটিফিকেশন সমর্থিত নয়');
+        STATE.settings.remindersEnabled = true;
+        this.saveSettingsNotificationState();
+        this.renderSettings();
+        this.showToast('🌸 ইন-অ্যাপ রিমাইন্ডার চালু থাকবে');
+        this.startReminderService();
       }
     } else {
       STATE.settings.remindersEnabled = false;
-      STATE.settings = this.validate('settings', STATE.settings);
-      this.saveData('fz_settings', STATE.settings);
+      this.saveSettingsNotificationState();
       this.renderSettings();
       this.showToast('রিমাইন্ডার বন্ধ করা হয়েছে');
+      if (this.reminderInterval) {
+        clearInterval(this.reminderInterval);
+        this.reminderInterval = null;
+      }
     }
+  },
+
+  toggleReminderType(type) {
+    if (!STATE.settings) STATE.settings = {};
+    if (!STATE.settings.notificationPreferences) {
+      STATE.settings.notificationPreferences = {
+        enabled: Boolean(STATE.settings.remindersEnabled),
+        time: STATE.settings.reminderTime || '08:00',
+        period: true,
+        ovulation: true,
+        selfCare: true,
+        water: true
+      };
+    }
+    STATE.settings.notificationPreferences[type] = !STATE.settings.notificationPreferences[type];
+    this.saveSettingsNotificationState();
+    this.renderSettings();
+  },
+
+  saveSettingsNotificationState() {
+    STATE.settings = this.validate('settings', STATE.settings);
+    this.saveData('fz_settings', STATE.settings);
   },
 
   saveReminderTime() {
@@ -3841,20 +4705,148 @@ const app = {
     const t = document.getElementById('reminder-time')?.value;
     if (t) {
       STATE.settings.reminderTime = t;
-      STATE.settings = this.validate('settings', STATE.settings);
-      this.saveData('fz_settings', STATE.settings);
+      this.saveSettingsNotificationState();
+      this.renderSettings();
       this.showToast('রিমাইন্ডার সময় সংরক্ষিত হয়েছে');
     }
   },
 
   startReminderService() {
-    if (this.reminderInterval) clearInterval(this.reminderInterval);
+    // Keep ONE single canonical timer for foreground checks
+    if (this.reminderInterval) {
+      clearInterval(this.reminderInterval);
+      this.reminderInterval = null;
+    }
+
+    if (!STATE.settings?.remindersEnabled) return;
+
+    // Check for any due reminders on app opening
+    this.checkAppOpenReminders();
+
+    // Secondary foreground check while the app remains open
     this.reminderInterval = setInterval(() => this.checkAndFireReminders(), 60000);
-    setTimeout(() => this.checkAndFireReminders(), 5000);
+  },
+
+  getApplicableReminder() {
+    if (!STATE.profile || !STATE.profile.setupDone) return null;
+
+    const prefs = STATE.settings?.notificationPreferences || {};
+    const types = {
+      period: prefs.period !== false,
+      ovulation: prefs.ovulation !== false,
+      selfCare: prefs.selfCare !== false,
+      water: prefs.water !== false
+    };
+
+    const p = this.calculatePredictions();
+    const now = new Date();
+
+    // 1. Period Reminders (পিরিয়ড)
+    if (types.period && p) {
+      if (p.isOverdue && p.overdueDays > 0) {
+        return {
+          type: 'period',
+          title: 'ফুলঝরি পিরিয়ড রিমাইন্ডার 🌸',
+          body: `সম্ভাব্য তারিখ ${toBanglaNumber(p.overdueDays)} দিন পেরিয়ে গেছে। নতুন পিরিয়ড শুরু হলে লগ করো 🌸`
+        };
+      }
+      if (p.nextPeriodStart) {
+        const daysToPeriod = diffInDays(p.nextPeriodStart, now);
+        if (daysToPeriod === 1) {
+          return {
+            type: 'period',
+            title: 'ফুলঝরি পিরিয়ড রিমাইন্ডার 🌸',
+            body: 'আগামীকাল তোমার পিরিয়ড শুরু হতে পারে 🌸 প্রয়োজনীয় প্রস্তুতি রেখো।'
+          };
+        }
+        if (daysToPeriod === 0) {
+          return {
+            type: 'period',
+            title: 'ফুলঝরি পিরিয়ড রিমাইন্ডার 🌸',
+            body: 'আজ তোমার পিরিয়ড শুরু হতে পারে। নিজের যত্ন নিও 🌸'
+          };
+        }
+      }
+    }
+
+    // 2. Ovulation Reminders (ডিম্বস্ফোটন)
+    if (types.ovulation && p && p.ovulationDate) {
+      const daysToOvulation = diffInDays(p.ovulationDate, now);
+      if (daysToOvulation <= 1 && daysToOvulation >= -1) {
+        return {
+          type: 'ovulation',
+          title: 'ডিম্বস্ফোটন রিমাইন্ডার ✨',
+          body: 'তুমি এখন ডিম্বস্ফোটন (উর্বর) সময়ে আছো ✨ নিজের শরীরকে লক্ষ্য করো।'
+        };
+      }
+    }
+
+    // 3. Self-care Reminders (নিজের যত্ন)
+    if (types.selfCare && p && p.phaseName) {
+      if (p.phaseName === 'মাসিকের সময়') {
+        return {
+          type: 'selfCare',
+          title: 'নিজের যত্ন নাও 🌙',
+          body: 'মাসিকের সময়ে হালকা গরম পানি পান ও পর্যাপ্ত বিশ্রাম তোমাকে আরাম দেবে 💕'
+        };
+      }
+      if (p.phaseName === 'লুটিয়াল পর্যায়') {
+        return {
+          type: 'selfCare',
+          title: 'নিজের যত্ন নাও 🌿',
+          body: 'লুটিয়াল ফেজ চলছে। পরিমিত ঘুম ও মানসিক প্রশান্তির প্রতি নজর দাও 🌸'
+        };
+      }
+    }
+
+    // 4. Water Reminders (পানি খাওয়া)
+    if (types.water) {
+      return {
+        type: 'water',
+        title: 'পানি পানের রিমাইন্ডার 💧',
+        body: 'আজ পর্যাপ্ত পানি পান করেছো তো? শরীর হাইড্রেটেড রাখলে এনার্জি ভালো থাকে 💧'
+      };
+    }
+
+    return {
+      type: 'general',
+      title: 'ফুলঝরি রিমাইন্ডার 🌸',
+      body: 'আজকে কেমন আছো? তোমার দৈনিক অনুভূতি ও তথ্য লগ করতে ভুলো না 🌸'
+    };
+  },
+
+  checkAppOpenReminders() {
+    if (!STATE.settings?.remindersEnabled || !STATE.profile || !STATE.profile.setupDone) return;
+
+    const now = new Date();
+    const dateStr = getLocalDateString(now);
+    const lastFireKey = `fz_last_reminder_${dateStr}`;
+
+    // If today's reminder hasn't fired yet
+    if (!localStorage.getItem(lastFireKey)) {
+      const reminder = this.getApplicableReminder();
+      if (!reminder) return;
+
+      const caps = this.getNotificationCapabilities();
+      // If system notification is granted, deliver local system notification
+      if (caps.hasNotificationAPI && caps.permission === 'granted') {
+        this.sendLocalNotification(reminder.title, reminder.body);
+      }
+
+      // Mark delivered for today
+      localStorage.setItem(lastFireKey, dateStr);
+
+      // If background delivery is limited, provide a gentle in-app reminder
+      if (!caps.backgroundDeliverySupported) {
+        setTimeout(() => {
+          this.showToast(`${reminder.title}: ${reminder.body}`, 4500);
+        }, 1800);
+      }
+    }
   },
 
   checkAndFireReminders() {
-    if (!STATE.settings?.remindersEnabled || !STATE.profile || !("Notification" in window) || Notification.permission !== 'granted') return;
+    if (!STATE.settings?.remindersEnabled || !STATE.profile || !STATE.profile.setupDone) return;
 
     const targetTime = STATE.settings.reminderTime || "08:00";
     const now = new Date();
@@ -3866,61 +4858,83 @@ const app = {
     const lastFireKey = `fz_last_reminder_${dateStr}`;
 
     if (currentTimeStr === targetTime && !localStorage.getItem(lastFireKey)) {
-      const p = this.calculatePredictions();
-      let title = "ফুলঝরি রিমাইন্ডার 🌸";
-      let body = "আজকে কেমন আছো? পানি খেতে ভুলো না 💧";
+      const reminder = this.getApplicableReminder();
+      if (!reminder) return;
 
-      if (p && p.nextPeriodStart && p.ovulationDate) {
-        const daysToPeriod = diffInDays(p.nextPeriodStart, now);
-        const daysToOvulation = diffInDays(p.ovulationDate, now);
-
-        if (daysToPeriod === 1) {
-          body = "আগামীকাল তোমার পিরিয়ড শুরু হতে পারে 🌸 প্রয়োজনীয় প্রস্তুতি রেখো।";
-        } else if (daysToPeriod === 0) {
-          body = "আজ তোমার পিরিয়ড শুরু হতে পারে। নিজের যত্ন নিও 🌸";
-        } else if (daysToOvulation <= 1 && daysToOvulation >= 0) {
-          body = "তুমি এখন ডিম্বস্ফোটন (উর্বর) সময়ে আছো ✨";
-        } else if (p.phaseName === "লুটিয়াল পর্যায়") {
-          body = "লুটিয়াল ফেজ চলছে। পর্যাপ্ত বিশ্রাম ও পানি পান করো 🌿";
-        }
+      const caps = this.getNotificationCapabilities();
+      if (caps.hasNotificationAPI && caps.permission === 'granted') {
+        this.sendLocalNotification(reminder.title, reminder.body);
       }
 
-      this.sendLocalNotification(title, body);
-      localStorage.setItem(lastFireKey, "true");
+      localStorage.setItem(lastFireKey, dateStr);
+      this.showToast(`${reminder.title}: ${reminder.body}`, 4500);
     }
   },
 
   sendLocalNotification(title, body) {
     try {
-      if ('serviceWorker' in navigator && navigator.serviceWorker.ready) {
+      const caps = this.getNotificationCapabilities();
+      if (!caps.hasNotificationAPI || caps.permission !== 'granted') {
+        return false;
+      }
+
+      if (caps.hasServiceWorker && navigator.serviceWorker.ready) {
         navigator.serviceWorker.ready.then(reg => {
-          reg.showNotification(title, {
-            body: body,
-            icon: '/icon.svg',
-            badge: '/icon.svg',
-            vibrate: [200, 100, 200]
-          }).catch(() => {});
+          if (reg && reg.showNotification) {
+            reg.showNotification(title, {
+              body: body,
+              icon: '/icon-192.png',
+              badge: '/icon.svg',
+              vibrate: [200, 100, 200],
+              data: { url: '/' }
+            }).catch(() => {
+              try { new Notification(title, { body: body, icon: '/icon-192.png' }); } catch (err) {}
+            });
+          } else {
+            try { new Notification(title, { body: body, icon: '/icon-192.png' }); } catch (err) {}
+          }
+        }).catch(() => {
+          try { new Notification(title, { body: body, icon: '/icon-192.png' }); } catch (err) {}
         });
       } else {
-        new Notification(title, { body: body, icon: '/icon.svg' });
+        try { new Notification(title, { body: body, icon: '/icon-192.png' }); } catch (err) {}
       }
+      return true;
     } catch (e) {
-      console.warn('Notification delivery fallback', e);
+      console.warn('[Notification] Delivery fallback caught:', e);
+      return false;
     }
   }
 };
 
 window.app = app;
 
-function boot() {
+function registerServiceWorker() {
   if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
-      navigator.serviceWorker.register('/service-worker.js').catch(err => {
-        console.warn('SW registration skipped: ', err);
-      });
-    });
+    const doRegister = () => {
+      try {
+        navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(err => {
+          console.warn('[SW] Registration failed gracefully:', err);
+        });
+      } catch (e) {
+        console.warn('[SW] Registration exception caught:', e);
+      }
+    };
+    if (document.readyState === 'complete') {
+      doRegister();
+    } else {
+      window.addEventListener('load', doRegister);
+    }
   }
-  app.init();
+}
+
+function boot() {
+  registerServiceWorker();
+  try {
+    app.init();
+  } catch (err) {
+    console.error('App init error:', err);
+  }
 }
 
 if (document.readyState === 'loading') {
